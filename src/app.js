@@ -5,6 +5,8 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpec = require('./config/swagger');
 
 const authRoutes = require('./routes/authRoutes');
+const horseRoutes = require('./routes/horseRoutes');
+const adminHorseRoutes = require('./routes/adminHorseRoutes');
 
 const app = express();
 
@@ -18,6 +20,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // Routes
 app.use('/auth', authRoutes);
+app.use('/horses', horseRoutes);
+app.use('/admin/horses', adminHorseRoutes);
 
 // Basic route for testing
 app.get('/', (req, res) => {
