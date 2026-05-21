@@ -8,6 +8,7 @@ const authRoutes = require("./routes/authRoutes");
 const horseRoutes = require("./routes/horseRoutes");
 const jockeyRoutes = require("./routes/jockeyRoutes");
 const adminHorseRoutes = require("./routes/adminHorseRoutes");
+const scheduleRoutes = require("./routes/scheduleRoutes");
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.use("/auth", authRoutes);
 app.use("/horses", horseRoutes);
 app.use("/jockeys", jockeyRoutes);
 app.use("/admin/horses", adminHorseRoutes);
+app.use("/", scheduleRoutes);
 
 // Basic route for testing
 app.get("/", (req, res) => {
