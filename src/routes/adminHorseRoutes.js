@@ -1,15 +1,16 @@
-const express = require('express');
-const { protect, authorize } = require('../middleware/authMiddleware');
+const express = require("express");
+const { protect, authorize } = require("../middleware/authMiddleware");
 const {
   getAllHorses,
   approveHorse,
-  rejectHorse
-} = require('../controllers/adminHorseController');
+  rejectHorse,
+} = require("../controllers/adminHorseController");
+const { adminGetJockeys } = require("../controllers/jockeyController");
 
 const router = express.Router();
 
 router.use(protect);
-router.use(authorize('ADMIN'));
+router.use(authorize("ADMIN"));
 
 /**
  * @swagger
@@ -46,7 +47,7 @@ router.use(authorize('ADMIN'));
  *       200:
  *         description: List of horses
  */
-router.get('/', getAllHorses);
+router.get("/", getAllHorses);
 
 /**
  * @swagger
@@ -66,7 +67,7 @@ router.get('/', getAllHorses);
  *       200:
  *         description: Horse approved
  */
-router.patch('/:horseId/approve', approveHorse);
+router.patch("/:horseId/approve", approveHorse);
 
 /**
  * @swagger
@@ -86,6 +87,36 @@ router.patch('/:horseId/approve', approveHorse);
  *       200:
  *         description: Horse rejected
  */
-router.patch('/:horseId/reject', rejectHorse);
+router.patch("/:horseId/reject", rejectHorse);
+
+/**
+ * @swagger
+ * /admin/jockeys:
+ *   get:
+ *     summary: Get all jockeys (Admin)
+ *     tags: [AdminJockeys]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *         description: Items per page
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *         description: Filter by status
+ *     responses:
+ *       200:
+ *         description: List of jockeys
+ */
+router.get("/jockeys", adminGetJockeys);
 
 module.exports = router;
