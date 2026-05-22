@@ -20,13 +20,17 @@ const adminRaceRoutes = require("./routes/adminRaceRoutes");
 
 const app = express();
 
-// Swagger docs
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
-// Middleware
-app.use(cors());
+// Middleware - CORS phải đứng ĐẦU TIÊN trước mọi routes
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Swagger docs
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes
 app.use("/auth", authRoutes);
