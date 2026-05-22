@@ -29,8 +29,16 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Swagger docs
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Swagger docs - tự detect URL theo môi trường (local hoặc production)
+app.use("/api-docs", swaggerUi.serve, (req, res, next) => {
+  const protocol = req.headers["x-forwarded-proto"] || req.protocol;
+  const host = req.headers["x-forwarded-host"] || req.get("host");
+  const dynamicSpec = {
+    ...swaggerSpec,
+    servers: [{ url: `${protocol}://${host}`, description: "Current server" }],
+  };
+  swaggerUi.setup(dynamicSpec)(req, res, next);
+});
 
 // Routes
 app.use("/auth", authRoutes);
