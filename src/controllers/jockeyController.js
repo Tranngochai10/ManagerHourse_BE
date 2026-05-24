@@ -33,7 +33,7 @@ exports.updateMyProfile = async (req, res) => {
         specialties,
       },
       { new: true },
-    ).populate('userId', 'fullName phone email');
+    ).populate("userId", "fullName phone email");
 
     if (!jockey) {
       return res.status(404).json({ message: "Jockey profile not found" });
@@ -49,8 +49,8 @@ exports.updateMyProfile = async (req, res) => {
 exports.getJockeyById = async (req, res) => {
   try {
     const jockey = await Jockey.findById(req.params.jockeyId)
-      .populate('userId', 'fullName phone')
-      .select('experience winRate bio image specialties wins races status');
+      .populate("userId", "fullName phone")
+      .select("experience winRate bio image specialties wins races status");
 
     if (!jockey) {
       return res.status(404).json({ message: "Jockey not found" });
@@ -73,8 +73,8 @@ exports.listJockeys = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const jockeys = await Jockey.find(filter)
-      .populate('userId', 'fullName phone')
-      .select('experience winRate bio image specialties wins races status')
+      .populate("userId", "fullName phone")
+      .select("experience winRate bio image specialties wins races status")
       .skip(skip)
       .limit(parseInt(limit));
 
