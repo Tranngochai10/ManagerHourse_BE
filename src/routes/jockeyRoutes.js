@@ -41,10 +41,6 @@ router.get("/me", protect, authorize("JOCKEY"), jockeyController.getMyProfile);
  *           schema:
  *             type: object
  *             properties:
- *               fullName:
- *                 type: string
- *               phone:
- *                 type: string
  *               age:
  *                 type: number
  *               experience:

@@ -21,14 +21,11 @@ exports.getMyProfile = async (req, res) => {
 // PUT /jockeys/me - Cập nhật profile Jockey
 exports.updateMyProfile = async (req, res) => {
   try {
-    const { fullName, phone, age, experience, bio, image, specialties } =
-      req.body;
+    const { age, experience, bio, image, specialties } = req.body;
 
     const jockey = await Jockey.findOneAndUpdate(
       { userId: req.user._id },
       {
-        fullName,
-        phone,
         age,
         experience,
         bio,
@@ -36,7 +33,7 @@ exports.updateMyProfile = async (req, res) => {
         specialties,
       },
       { new: true },
-    );
+    ).populate('userId', 'fullName phone email');
 
     if (!jockey) {
       return res.status(404).json({ message: "Jockey profile not found" });
@@ -51,9 +48,9 @@ exports.updateMyProfile = async (req, res) => {
 // GET /jockeys/:jockeyId - Xem thông tin Jockey công khai
 exports.getJockeyById = async (req, res) => {
   try {
-    const jockey = await Jockey.findById(req.params.jockeyId).select(
-      "fullName experience winRate bio image specialties wins races status",
-    );
+    const jockey = await Jockey.findById(req.params.jockeyId)
+      .populate('userId', 'fullName phone')
+      .select('experience winRate bio image specialties wins races status');
 
     if (!jockey) {
       return res.status(404).json({ message: "Jockey not found" });
@@ -76,9 +73,8 @@ exports.listJockeys = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const jockeys = await Jockey.find(filter)
-      .select(
-        "fullName experience winRate bio image specialties wins races status",
-      )
+      .populate('userId', 'fullName phone')
+      .select('experience winRate bio image specialties wins races status')
       .skip(skip)
       .limit(parseInt(limit));
 
