@@ -9,6 +9,7 @@ const horseRoutes = require("./routes/horseRoutes");
 const jockeyRoutes = require("./routes/jockeyRoutes");
 
 const adminHorseRoutes = require("./routes/adminHorseRoutes");
+const adminUserRoutes = require("./routes/adminUserRoutes");
 
 const scheduleRoutes = require("./routes/scheduleRoutes");
 
@@ -17,6 +18,8 @@ const adminTournamentRoutes = require("./routes/adminTournamentRoutes");
 
 const raceRoutes = require("./routes/raceRoutes");
 const adminRaceRoutes = require("./routes/adminRaceRoutes");
+
+const refereeRoutes = require("./routes/refereeRoutes");
 
 const app = express();
 
@@ -47,6 +50,7 @@ app.use("/horses", horseRoutes);
 app.use("/jockeys", jockeyRoutes);
 
 app.use("/admin/horses", adminHorseRoutes);
+app.use("/admin/users", adminUserRoutes);
 
 app.use("/", scheduleRoutes);
 
@@ -59,6 +63,8 @@ app.use("/races", raceRoutes);
 app.use("/horses", raceRoutes);
 
 app.use("/admin/races", adminRaceRoutes);
+
+app.use("/referee", refereeRoutes);
 
 // Basic route for testing
 app.get("/", (req, res) => {
