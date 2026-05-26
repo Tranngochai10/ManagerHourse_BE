@@ -17,15 +17,18 @@ const adminTournamentRoutes = require("./routes/adminTournamentRoutes");
 
 const raceRoutes = require("./routes/raceRoutes");
 const adminRaceRoutes = require("./routes/adminRaceRoutes");
-
+const resultRoutes = require("./routes/resultRoutes");
+const predictionRoutes = require("./routes/predictionRoutes");
 const app = express();
 
 // Middleware - CORS phải đứng ĐẦU TIÊN trước mọi routes
-app.use(cors({
-  origin: "*",
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "Accept"],
-}));
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "Accept"],
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -59,6 +62,19 @@ app.use("/races", raceRoutes);
 app.use("/horses", raceRoutes);
 
 app.use("/admin/races", adminRaceRoutes);
+
+// Result & Ranking routes
+app.use("/", resultRoutes);
+app.use("/admin", resultRoutes);
+app.use("/horses", resultRoutes);
+app.use("/jockeys", resultRoutes);
+app.use("/tournaments", resultRoutes);
+
+// Prediction & Betting routes
+app.use("/", predictionRoutes);
+app.use("/races", predictionRoutes);
+app.use("/me", predictionRoutes);
+app.use("/admin", predictionRoutes);
 
 // Basic route for testing
 app.get("/", (req, res) => {

@@ -8,11 +8,6 @@ const jockeySchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
-    fullName: {
-      type: String,
-      required: true,
-    },
-    phone: String,
     age: Number,
     experience: Number, // số năm kinh nghiệm
     winRate: {
