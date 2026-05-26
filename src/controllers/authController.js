@@ -70,8 +70,12 @@ exports.login = async (req, res) => {
     const { email, password } = req.body;
 
     const user = await User.findOne({ email });
-    if (!user) {
+    if (!user || user.isDeleted) {
       return res.status(401).json({ message: "INVALID_CREDENTIALS" });
+    }
+
+    if (user.status === 'INACTIVE') {
+      return res.status(403).json({ message: "ACCOUNT_DEACTIVATED" });
     }
 
     const isMatch = await bcrypt.compare(password, user.password);

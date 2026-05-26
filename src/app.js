@@ -9,6 +9,7 @@ const horseRoutes = require("./routes/horseRoutes");
 const jockeyRoutes = require("./routes/jockeyRoutes");
 
 const adminHorseRoutes = require("./routes/adminHorseRoutes");
+const adminUserRoutes = require("./routes/adminUserRoutes");
 
 const scheduleRoutes = require("./routes/scheduleRoutes");
 
@@ -17,8 +18,12 @@ const adminTournamentRoutes = require("./routes/adminTournamentRoutes");
 
 const raceRoutes = require("./routes/raceRoutes");
 const adminRaceRoutes = require("./routes/adminRaceRoutes");
+
+const refereeRoutes = require("./routes/refereeRoutes");
+
 const resultRoutes = require("./routes/resultRoutes");
 const predictionRoutes = require("./routes/predictionRoutes");
+
 const app = express();
 
 // Middleware - CORS phải đứng ĐẦU TIÊN trước mọi routes
@@ -50,6 +55,7 @@ app.use("/horses", horseRoutes);
 app.use("/jockeys", jockeyRoutes);
 
 app.use("/admin/horses", adminHorseRoutes);
+app.use("/admin/users", adminUserRoutes);
 
 app.use("/", scheduleRoutes);
 
@@ -63,6 +69,7 @@ app.use("/horses", raceRoutes);
 
 app.use("/admin/races", adminRaceRoutes);
 
+app.use("/referee", refereeRoutes);
 // Result & Ranking routes
 app.use("/", resultRoutes);
 app.use("/admin", resultRoutes);
