@@ -70,18 +70,12 @@ app.use("/horses", raceRoutes);
 app.use("/admin/races", adminRaceRoutes);
 
 app.use("/referee", refereeRoutes);
+
 // Result & Ranking routes
-app.use("/", resultRoutes);
-app.use("/admin", resultRoutes);
-app.use("/horses", resultRoutes);
-app.use("/jockeys", resultRoutes);
-app.use("/tournaments", resultRoutes);
+app.use("/results", resultRoutes);
 
 // Prediction & Betting routes
-app.use("/", predictionRoutes);
-app.use("/races", predictionRoutes);
-app.use("/me", predictionRoutes);
-app.use("/admin", predictionRoutes);
+app.use("/prediction", predictionRoutes);
 
 // Basic route for testing
 app.get("/", (req, res) => {

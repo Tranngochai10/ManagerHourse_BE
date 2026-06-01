@@ -1,11 +1,18 @@
-const express = require('express');
-const { protect, authorize } = require('../middleware/authMiddleware');
-const { createRace, updateRace, assignReferee } = require('../controllers/adminRaceController');
+const express = require("express");
+const { protect, authorize } = require("../middleware/authMiddleware");
+const {
+  createRace,
+  updateRace,
+  assignReferee,
+  getRaceRegistrations,
+  approveRaceRegistration,
+  rejectRaceRegistration,
+} = require("../controllers/adminRaceController");
 
 const router = express.Router();
 
 // All admin race routes require authentication + ADMIN role
-router.use(protect, authorize('ADMIN'));
+router.use(protect, authorize("ADMIN"));
 
 /**
  * @swagger
@@ -81,7 +88,7 @@ router.use(protect, authorize('ADMIN'));
  *       404:
  *         description: Tournament not found
  */
-router.post('/', createRace);
+router.post("/", createRace);
 
 /**
  * @swagger
@@ -129,7 +136,7 @@ router.post('/', createRace);
  *       404:
  *         description: Race not found
  */
-router.put('/:raceId', updateRace);
+router.put("/:raceId", updateRace);
 
 /**
  * @swagger
@@ -179,6 +186,166 @@ router.put('/:raceId', updateRace);
  *       404:
  *         description: Race or User not found
  */
-router.post('/:raceId/assign-referee', assignReferee);
+router.post("/:raceId/assign-referee", assignReferee);
+
+/**
+ * @swagger
+ * /admin/races/registrations:
+ *   get:
+ *     summary: Get all race registrations with optional filtering
+ *     tags: [Admin - Races]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: raceId
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Filter by race ID
+ *       - in: query
+ *         name: status
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [PENDING_APPROVAL, APPROVED, REJECTED, CONFIRMED]
+ *         description: Filter by registration status
+ *     responses:
+ *       200:
+ *         description: List of race registrations
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 total:
+ *                   type: integer
+ *                 registrations:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       regId:
+ *                         type: string
+ *                       horseId:
+ *                         type: string
+ *                       horseName:
+ *                         type: string
+ *                       raceId:
+ *                         type: string
+ *                       raceName:
+ *                         type: string
+ *                       status:
+ *                         type: string
+ *                         example: PENDING_APPROVAL
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *       400:
+ *         description: Query error
+ */
+router.get("/registrations", getRaceRegistrations);
+
+/**
+ * @swagger
+ * /admin/races/registrations/{regId}/approve:
+ *   patch:
+ *     summary: Approve a pending race registration
+ *     tags: [Admin - Races]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: regId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Registration ID
+ *     responses:
+ *       200:
+ *         description: Registration approved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 regId:
+ *                   type: string
+ *                 horseId:
+ *                   type: string
+ *                 horseName:
+ *                   type: string
+ *                 raceId:
+ *                   type: string
+ *                 raceName:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   example: APPROVED
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Registration not in PENDING_APPROVAL status
+ *       404:
+ *         description: Registration not found
+ */
+router.patch("/registrations/:regId/approve", approveRaceRegistration);
+
+/**
+ * @swagger
+ * /admin/races/registrations/{regId}/reject:
+ *   patch:
+ *     summary: Reject a pending race registration
+ *     tags: [Admin - Races]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: regId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Registration ID
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 description: Reason for rejection
+ *                 example: "Horse does not meet weight requirements"
+ *     responses:
+ *       200:
+ *         description: Registration rejected successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 regId:
+ *                   type: string
+ *                 horseId:
+ *                   type: string
+ *                 horseName:
+ *                   type: string
+ *                 raceId:
+ *                   type: string
+ *                 raceName:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   example: REJECTED
+ *                 rejectionReason:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Registration not in PENDING_APPROVAL status
+ *       404:
+ *         description: Registration not found
+ */
+router.patch("/registrations/:regId/reject", rejectRaceRegistration);
 
 module.exports = router;
