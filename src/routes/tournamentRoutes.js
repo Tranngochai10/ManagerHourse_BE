@@ -1,5 +1,6 @@
 const express = require('express');
 const { getTournaments, getTournamentById } = require('../controllers/tournamentController');
+const { getTournamentLeaderboard } = require('../controllers/resultController'); // FIX: alias route
 
 const router = express.Router();
 
@@ -21,7 +22,7 @@ const router = express.Router();
  *         name: status
  *         schema:
  *           type: string
- *           enum: [DRAFT, PUBLISHED, ONGOING, COMPLETED, CANCELLED]
+ *           enum: [DRAFT, ACTIVE, PUBLISHED, ONGOING, COMPLETED, CANCELLED]
  *         description: Filter by tournament status
  *       - in: query
  *         name: page
@@ -51,6 +52,25 @@ const router = express.Router();
  *                   type: array
  */
 router.get('/', getTournaments);
+
+/**
+ * @swagger
+ * /tournaments/{tournId}/leaderboard:
+ *   get:
+ *     summary: Get tournament leaderboard (alias)
+ *     tags: [Tournaments]
+ *     parameters:
+ *       - in: path
+ *         name: tournId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Tournament leaderboard
+ */
+// FIX: route alias phải đặt TRƯỚC /:tournId để tránh Express parse 'leaderboard' như ID
+router.get('/:tournId/leaderboard', getTournamentLeaderboard);
 
 /**
  * @swagger

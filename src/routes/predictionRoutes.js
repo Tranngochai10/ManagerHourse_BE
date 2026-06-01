@@ -6,11 +6,13 @@ const {
   getMyPredictions,
   getPredictionDetails,
   getNotifications,
+  markNotificationRead,
   closePredictions,
   settlePredictions,
   getAllPredictions,
   getPredictionStats,
 } = require("../controllers/predictionController");
+
 
 const router = express.Router();
 
@@ -187,6 +189,33 @@ router.get(
   protect,
   authorize("SPECTATOR"),
   getNotifications,
+);
+
+/**
+ * @swagger
+ * /me/notifications/{notifId}/read:
+ *   patch:
+ *     summary: Mark notification as read
+ *     tags: [Prediction (Dự đoán kết quả)]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: notifId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Notification marked as read
+ *       404:
+ *         description: Notification not found
+ */
+router.patch(
+  "/me/notifications/:notifId/read",
+  protect,
+  authorize("SPECTATOR"),
+  markNotificationRead,
 );
 
 /**

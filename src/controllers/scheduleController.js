@@ -128,6 +128,9 @@ exports.getTournamentSchedule = async (req, res) => {
 /**
  * PATCH /me/horses/:horseId/races/:raceId/confirm
  * Đồng ý nhận tham gia cuộc đua (OWNER)
+ *
+ * FIX: Controller cũ tìm trong Schedule model (luôn 404 vì Schedule không phải lúc nào cũng tồn tại).
+ * Sửa lại: cập nhật trường confirmedByOwner = true trong RaceRegistration.
  */
 exports.confirmRaceParticipation = async (req, res) => {
   try {
@@ -144,38 +147,37 @@ exports.confirmRaceParticipation = async (req, res) => {
       return res.status(403).json({ message: "Horse does not belong to you" });
     }
 
-    // Tìm schedule và cập nhật status
-    const schedule = await Schedule.findOne({ raceId });
-    if (!schedule) {
-      return res.status(404).json({ message: "Race schedule not found" });
+    // FIX: Tìm RaceRegistration (không phải Schedule)
+    const registration = await RaceRegistration.findOne({ horseId, raceId });
+    if (!registration) {
+      return res.status(404).json({ message: "Horse is not registered for this race" });
     }
 
-    // Tìm registered horse và update status
-    const horseIndex = schedule.registeredHorses.findIndex(
-      (h) =>
-        h.horseId.toString() === horseId &&
-        h.ownerId.toString() === ownerId.toString(),
-    );
-
-    if (horseIndex === -1) {
-      return res
-        .status(404)
-        .json({ message: "Horse not registered for this race" });
+    // Kiểm tra đăng ký đã được Admin duyệt chưa
+    if (registration.status === 'REJECTED') {
+      return res.status(400).json({ message: "Registration has been rejected, cannot confirm" });
     }
 
-    schedule.registeredHorses[horseIndex].status = "CONFIRMED";
-    await schedule.save();
+    // Cập nhật confirmedByOwner = true
+    registration.confirmedByOwner = true;
+    // Nếu đã APPROVED, chuyển sang CONFIRMED
+    if (registration.status === 'APPROVED') {
+      registration.status = 'CONFIRMED';
+    }
+    await registration.save();
 
     res.status(200).json({
       message: "Race participation confirmed successfully",
       horseId,
       raceId,
-      status: "CONFIRMED",
+      confirmedByOwner: true,
+      status: registration.status,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 /**
  * PATCH /me/horses/:horseId/races/:raceId/withdraw

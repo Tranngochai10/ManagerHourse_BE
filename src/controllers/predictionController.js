@@ -211,6 +211,30 @@ exports.getNotifications = async (req, res) => {
   }
 };
 
+// PATCH /me/notifications/:notifId/read — SPECTATOR: Mark notification as read
+exports.markNotificationRead = async (req, res) => {
+  try {
+    const { notifId } = req.params;
+    const spectatorId = req.user._id;
+
+    const notification = await Notification.findOne({
+      _id: notifId,
+      spectatorId,
+    });
+
+    if (!notification) {
+      return res.status(404).json({ message: "Notification not found" });
+    }
+
+    notification.isRead = true;
+    await notification.save();
+
+    res.status(200).json({ message: "Notification marked as read", notification });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // POST /admin/races/:raceId/predictions/close — ADMIN: Close predictions for a race
 exports.closePredictions = async (req, res) => {
   try {

@@ -176,7 +176,11 @@ exports.getRaceRegistrations = async (req, res) => {
 
     // Fetch registrations with populated references
     const registrations = await RaceRegistration.find(filter)
-      .populate("horseId", "name breed owner")
+      .populate({
+        path: "horseId",
+        select: "name breed age ownerId",
+        populate: { path: "ownerId", select: "fullName email phone" }
+      })
       .populate("raceId", "name distance scheduledAt maxHorses")
       .sort({ createdAt: -1 });
 

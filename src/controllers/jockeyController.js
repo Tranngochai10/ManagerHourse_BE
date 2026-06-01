@@ -2,6 +2,7 @@ const Jockey = require("../models/Jockey");
 const Invitation = require("../models/Invitation");
 const RaceRegistration = require("../models/RaceRegistration");
 const Horse = require("../models/Horse");
+const Race = require("../models/Race"); // FIX: cần import Race để validate raceId
 
 // GET /jockeys/me - Xem profile Jockey của bản thân
 exports.getMyProfile = async (req, res) => {
@@ -116,8 +117,9 @@ exports.sendInvitation = async (req, res) => {
       return res.status(404).json({ message: "Jockey not found" });
     }
 
-    // Kiểm tra race có tồn tại
-    const race = await RaceRegistration.findById(raceId);
+    // FIX: Kiểm tra race có tồn tại - dùng Race model (không phải RaceRegistration)
+    // Bug cũ: RaceRegistration.findById(raceId) luôn trả về null vì raceId là ID của Race, không phải Registration
+    const race = await Race.findById(raceId);
     if (!race) {
       return res.status(404).json({ message: "Race not found" });
     }

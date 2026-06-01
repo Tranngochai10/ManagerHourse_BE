@@ -28,7 +28,7 @@ exports.createTournament = async (req, res) => {
       prizePool,
       currency: currency || 'VND',
       maxHorses,
-      status: 'DRAFT',
+      status: req.body.status || 'DRAFT',
       createdBy: req.user._id,
     });
 

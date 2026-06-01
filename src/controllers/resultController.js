@@ -33,7 +33,7 @@ exports.getResultsByRace = async (req, res) => {
 exports.publishRaceResult = async (req, res) => {
   try {
     const { raceId } = req.params;
-    const { results } = req.body; // Array of { horseId, jockeyId, position, finishTime, status, prizeAmount }
+    const { results } = req.body; // Array of { horseId, jockeyId?, position?, finishTime?, status?, prizeAmount? }
 
     const race = await Race.findById(raceId);
     if (!race) {
@@ -59,18 +59,62 @@ exports.publishRaceResult = async (req, res) => {
         .json({ message: "Some horses are not registered for this race" });
     }
 
+    // FIX: Import Invitation để tự động tìm jockeyId
+    const Invitation = require("../models/Invitation");
+
+    // Helper: parse finishTime linh hoạt
+    // Chấp nhận: số (seconds), string số ("90.5"), string "M:SS.mmm" ("1:30.500")
+    const parseFinishTime = (val) => {
+      if (val === null || val === undefined) return null;
+      if (typeof val === 'number') return val;
+      const str = String(val).trim();
+      // Dạng "M:SS" hoặc "M:SS.mmm"
+      const matchMSS = str.match(/^(\d+):(\d+(?:\.\d+)?)$/);
+      if (matchMSS) {
+        return parseFloat(matchMSS[1]) * 60 + parseFloat(matchMSS[2]);
+      }
+      // Dạng số thuần
+      const num = parseFloat(str);
+      return isNaN(num) ? null : num;
+    };
+
     // Delete existing results for this race
     await Result.deleteMany({ raceId });
 
     // Create new results
     const createdResults = [];
-    for (const result of results) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+
+      // FIX: Nếu không có jockeyId, tự động tìm từ Invitation đã ACCEPTED
+      let jockeyId = result.jockeyId;
+      if (!jockeyId) {
+        const inv = await Invitation.findOne({
+          horseId: result.horseId,
+          raceId,
+          status: "ACCEPTED",
+        });
+        if (inv) jockeyId = inv.jockeyId;
+      }
+
+      if (!jockeyId) {
+        return res.status(400).json({
+          message: `jockeyId is required for horseId ${result.horseId} (no accepted invitation found)`,
+        });
+      }
+
+      // FIX: parse finishTime linh hoạt
+      const finishTime = parseFinishTime(result.finishTime);
+
+      // FIX: position mặc định là thứ tự trong mảng nếu không truyền
+      const position = result.position ?? (i + 1);
+
       const newResult = new Result({
         raceId,
         horseId: result.horseId,
-        jockeyId: result.jockeyId,
-        position: result.position,
-        finishTime: result.finishTime,
+        jockeyId,
+        position,
+        finishTime,
         status: result.status || "FINISHED",
         prizeAmount: result.prizeAmount || 0,
         notes: result.notes || "",
@@ -98,6 +142,7 @@ exports.publishRaceResult = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // GET /horses/me/:horseId/results — OWNER: Get all results for a specific horse
 exports.getHorseResults = async (req, res) => {

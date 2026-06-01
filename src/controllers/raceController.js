@@ -57,7 +57,7 @@ exports.getHorsesByRace = async (req, res) => {
       return res.status(404).json({ message: 'Race not found' });
     }
 
-    const registrations = await RaceRegistration.find({ raceId: req.params.raceId })
+    const registrations = await RaceRegistration.find({ raceId: req.params.raceId, status: 'CONFIRMED' })
       .populate({
         path: 'horseId',
         populate: { path: 'ownerId', select: 'fullName email' },

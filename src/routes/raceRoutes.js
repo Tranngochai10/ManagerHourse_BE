@@ -1,6 +1,7 @@
 const express = require('express');
 const { protect, authorize } = require('../middleware/authMiddleware');
 const { getRaces, getRaceById, getHorsesByRace, confirmRaceParticipation } = require('../controllers/raceController');
+const { checkRaceOpen } = require('../controllers/predictionController'); // FIX: alias route
 
 const router = express.Router();
 
@@ -43,6 +44,27 @@ const router = express.Router();
  *         description: Paginated list of races
  */
 router.get('/', getRaces);
+
+/**
+ * @swagger
+ * /races/{raceId}/predictions/open:
+ *   get:
+ *     summary: Check if race is open for predictions (alias)
+ *     tags: [Races]
+ *     parameters:
+ *       - in: path
+ *         name: raceId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Returns isOpen status for predictions
+ *       404:
+ *         description: Race not found
+ */
+// FIX: Đặt route cụ thể TRƯỚC route /:raceId để tránh conflict
+router.get('/:raceId/predictions/open', checkRaceOpen);
 
 /**
  * @swagger
