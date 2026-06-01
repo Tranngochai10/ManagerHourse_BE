@@ -38,7 +38,7 @@ const router = express.Router();
  *       404:
  *         description: Race not found
  */
-router.get("/races/:raceId/results", getResultsByRace);
+router.get("/races/:raceId", getResultsByRace);
 
 /**
  * @swagger
@@ -93,7 +93,7 @@ router.get("/races/:raceId/results", getResultsByRace);
  *         description: Race not found
  */
 router.post(
-  "/admin/races/:raceId/publish-result",
+  "/admin/races/:raceId/publish",
   protect,
   authorize("ADMIN"),
   publishRaceResult,
@@ -121,12 +121,7 @@ router.post(
  *       404:
  *         description: Horse not found
  */
-router.get(
-  "/horses/me/:horseId/results",
-  protect,
-  authorize("OWNER"),
-  getHorseResults,
-);
+router.get("/horses/me/:horseId", protect, authorize("OWNER"), getHorseResults);
 
 /**
  * @swagger
@@ -140,12 +135,7 @@ router.get(
  *       200:
  *         description: Jockey results with statistics
  */
-router.get(
-  "/jockeys/me/results",
-  protect,
-  authorize("JOCKEY"),
-  getJockeyResults,
-);
+router.get("/jockeys/me", protect, authorize("JOCKEY"), getJockeyResults);
 
 /**
  * @swagger
