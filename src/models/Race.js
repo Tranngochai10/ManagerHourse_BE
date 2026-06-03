@@ -56,6 +56,22 @@ const raceSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
   },
+  streamKey: {
+    type: String,
+    default: null,
+  },
+  playbackId: {
+    type: String,
+    default: null,
+  },
+  isLive: {
+    type: Boolean,
+    default: false,
+  },
+  liveStreamId: {
+    type: String,
+    default: null,
+  },
 }, {
   timestamps: true,
 });
