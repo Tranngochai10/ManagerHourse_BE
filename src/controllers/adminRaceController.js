@@ -176,7 +176,14 @@ exports.getRaceRegistrations = async (req, res) => {
 
     // Fetch registrations with populated references
     const registrations = await RaceRegistration.find(filter)
-      .populate("horseId", "name breed owner")
+      .populate({
+        path: "horseId",
+        select: "name breed ownerId",
+        populate: {
+          path: "ownerId",
+          select: "fullName email",
+        },
+      })
       .populate("raceId", "name distance scheduledAt maxHorses")
       .sort({ createdAt: -1 });
 
@@ -184,14 +191,14 @@ exports.getRaceRegistrations = async (req, res) => {
       total: registrations.length,
       registrations: registrations.map((reg) => ({
         regId: reg._id,
-        horseId: reg.horseId._id,
-        horseName: reg.horseId.name,
-        horseBreed: reg.horseId.breed,
-        horseOwner: reg.horseId.owner,
-        raceId: reg.raceId._id,
-        raceName: reg.raceId.name,
-        raceDistance: reg.raceId.distance,
-        raceScheduledAt: reg.raceId.scheduledAt,
+        horseId: reg.horseId ? reg.horseId._id : null,
+        horseName: reg.horseId ? reg.horseId.name : null,
+        horseBreed: reg.horseId ? reg.horseId.breed : null,
+        horseOwner: reg.horseId ? reg.horseId.ownerId : null,
+        raceId: reg.raceId ? reg.raceId._id : null,
+        raceName: reg.raceId ? reg.raceId.name : null,
+        raceDistance: reg.raceId ? reg.raceId.distance : null,
+        raceScheduledAt: reg.raceId ? reg.raceId.scheduledAt : null,
         status: reg.status,
         confirmedByOwner: reg.confirmedByOwner,
         createdAt: reg.createdAt,
