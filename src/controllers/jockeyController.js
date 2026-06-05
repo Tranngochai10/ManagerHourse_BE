@@ -1,6 +1,7 @@
 const Jockey = require("../models/Jockey");
 const Invitation = require("../models/Invitation");
 const RaceRegistration = require("../models/RaceRegistration");
+const Race = require("../models/Race");
 const Horse = require("../models/Horse");
 
 // GET /jockeys/me - Xem profile Jockey của bản thân
@@ -117,7 +118,7 @@ exports.sendInvitation = async (req, res) => {
     }
 
     // Kiểm tra race có tồn tại
-    const race = await RaceRegistration.findById(raceId);
+    const race = await Race.findById(raceId);
     if (!race) {
       return res.status(404).json({ message: "Race not found" });
     }
