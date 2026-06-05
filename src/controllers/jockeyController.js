@@ -176,7 +176,7 @@ exports.getMyInvitations = async (req, res) => {
     const invitations = await Invitation.find(filter)
       .populate("horseId", "name")
       .populate("raceId", "name date")
-      .populate("ownerId", "name email")
+      .populate("ownerId", "fullName email")
       .sort({ sentAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -350,7 +350,7 @@ exports.adminGetJockeys = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const jockeys = await Jockey.find(filter)
-      .populate("userId", "name email phone")
+      .populate("userId", "fullName email phone")
       .skip(skip)
       .limit(parseInt(limit));
 

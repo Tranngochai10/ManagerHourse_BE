@@ -14,7 +14,7 @@ const invitationSchema = new mongoose.Schema(
     },
     raceId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: "RaceRegistration",
+      ref: "Race",
       required: true,
     },
     ownerId: {
