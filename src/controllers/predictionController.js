@@ -3,6 +3,7 @@ const Notification = require("../models/Notification");
 const Race = require("../models/Race");
 const Horse = require("../models/Horse");
 const Result = require("../models/Result");
+const User = require("../models/User");
 
 const BET_MULTIPLIER = 1.8; // betAmount × 1.8 khi thắng
 const MIN_BET = 100000;
@@ -92,6 +93,19 @@ exports.placePrediction = async (req, res) => {
         message: "You already have a prediction for this race",
       });
     }
+
+    // Check points balance
+    const user = await User.findById(spectatorId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    if (user.points < betAmount) {
+      return res.status(400).json({ message: "INSUFFICIENT_POINTS" });
+    }
+
+    // Deduct points
+    user.points -= betAmount;
+    await user.save();
 
     // Create prediction
     const prediction = new Prediction({
@@ -286,8 +300,15 @@ exports.settlePredictions = async (req, res) => {
       if (actualPosition === 1) {
         status = "WON";
         notificationType = "PREDICTION_WON";
-        notificationMessage = `Congratulations! You won! Prize: ${prediction.prizeAmount.toLocaleString()} VND`;
+        notificationMessage = `Congratulations! You won! Prize: ${prediction.prizeAmount.toLocaleString()} points`;
         notificationTitle = "Prediction Won!";
+
+        // Credit points to spectator
+        const spectator = await User.findById(prediction.spectatorId);
+        if (spectator) {
+          spectator.points = (spectator.points || 0) + prediction.prizeAmount;
+          await spectator.save();
+        }
       }
 
       // Update prediction

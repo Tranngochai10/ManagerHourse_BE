@@ -44,7 +44,7 @@ exports.startStream = async (req, res) => {
       playbackId,
       isLive: race.isLive,
       status: race.status,
-      rtmpIngestUrl: 'rtmp://global-live.mux.com:5222/app',
+      rtmpIngestUrl: 'rtmps://global-live.mux.com/app',
       streamUrl: `https://stream.mux.com/${playbackId}.m3u8`,
     });
   } catch (error) {

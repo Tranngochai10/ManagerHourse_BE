@@ -20,6 +20,16 @@ const protect = async (req, res, next) => {
     if (!user) {
       return res.status(401).json({ message: 'Not authorized, user not found' });
     }
+
+    // Auto-reset points for Spectator if balance is low and 3 days have passed since last reset
+    if (user.role === 'SPECTATOR' && (user.points || 0) < 100000) {
+      const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+      if (!user.lastPointsResetAt || (Date.now() - new Date(user.lastPointsResetAt).getTime() >= THREE_DAYS_MS)) {
+        user.points = 10000000;
+        user.lastPointsResetAt = new Date();
+        await user.save();
+      }
+    }
     
     req.user = user;
     next();

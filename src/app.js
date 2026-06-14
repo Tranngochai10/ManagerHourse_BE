@@ -76,7 +76,7 @@ app.use("/referee", refereeRoutes);
 app.use("/results", resultRoutes);
 
 // Prediction & Betting routes
-app.use("/prediction", predictionRoutes);
+app.use("/", predictionRoutes);
 
 app.use("/", streamRoutes);
 
