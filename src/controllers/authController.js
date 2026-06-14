@@ -20,7 +20,8 @@ const generateTokens = (user) => {
 // @access  Public
 exports.register = async (req, res) => {
   try {
-    const { email, password, fullName, role, phone } = req.body;
+    const { email, password, fullName, phone } = req.body;
+    const role = "SPECTATOR";
 
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -42,19 +43,11 @@ exports.register = async (req, res) => {
       phone,
     });
 
-    // Tạo Jockey profile nếu role là JOCKEY
-    if (role === "JOCKEY") {
-      await Jockey.create({
-        userId: user._id,
-        fullName: fullName,
-        phone: phone || "",
-      });
-    }
-
     res.status(201).json({
       userId: user._id,
       email: user.email,
       role: user.role,
+      points: user.points,
       createdAt: user.createdAt,
     });
   } catch (error) {
@@ -86,6 +79,15 @@ exports.login = async (req, res) => {
     // Generate tokens
     const tokens = generateTokens(user);
 
+    // Auto-reset points for Spectator if balance is low and 3 days have passed since last reset
+    if (user.role === 'SPECTATOR' && (user.points || 0) < 100000) {
+      const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+      if (!user.lastPointsResetAt || (Date.now() - new Date(user.lastPointsResetAt).getTime() >= THREE_DAYS_MS)) {
+        user.points = 10000000;
+        user.lastPointsResetAt = new Date();
+      }
+    }
+
     // Save refresh token in DB
     user.refreshToken = tokens.refreshToken;
     await user.save();
@@ -98,6 +100,7 @@ exports.login = async (req, res) => {
         userId: user._id,
         role: user.role,
         fullName: user.fullName,
+        points: user.points,
       },
     });
   } catch (error) {
@@ -188,6 +191,7 @@ exports.updateMe = async (req, res) => {
         fullName: updatedUser.fullName,
         role: updatedUser.role,
         phone: updatedUser.phone,
+        points: updatedUser.points,
       });
     } else {
       res.status(404).json({ message: "User not found" });
@@ -229,6 +233,57 @@ exports.changePassword = async (req, res) => {
     await userWithPassword.save();
 
     res.status(200).json({ message: "Password changed successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// @desc    Reset virtual points back to default
+// @route   POST /auth/reset-points
+// @access  Private (Spectator only)
+exports.resetPoints = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (user.role !== "SPECTATOR") {
+      return res.status(403).json({ message: "Only Spectator accounts can reset points" });
+    }
+
+    // Only allow reset if current points are less than the minimum bet (100,000)
+    const MIN_BET = 100000;
+    if (user.points >= MIN_BET) {
+      return res.status(400).json({
+        message: "You still have enough points to bet. Minimum required is less than " + MIN_BET,
+      });
+    }
+
+    // Check if 3 days have passed since last reset
+    const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+    if (user.lastPointsResetAt) {
+      const timeSinceLastReset = Date.now() - new Date(user.lastPointsResetAt).getTime();
+      if (timeSinceLastReset < THREE_DAYS_MS) {
+        const remainingTimeMs = THREE_DAYS_MS - timeSinceLastReset;
+        const remainingDays = Math.ceil(remainingTimeMs / (24 * 60 * 60 * 1000));
+        return res.status(400).json({
+          message: `You can only reset points after 3 days. Please wait ${remainingDays} more day(s).`,
+          remainingDays,
+        });
+      }
+    }
+
+    // Reset points
+    user.points = 10000000;
+    user.lastPointsResetAt = new Date();
+    await user.save();
+
+    res.status(200).json({
+      message: "Points reset to default balance successfully",
+      points: user.points,
+      lastPointsResetAt: user.lastPointsResetAt,
+    });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }

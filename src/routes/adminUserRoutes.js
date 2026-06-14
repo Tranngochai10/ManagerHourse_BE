@@ -7,6 +7,7 @@ const {
   activateUser,
   deactivateUser,
   deleteUser,
+  createUser,
 } = require('../controllers/adminUserController');
 
 const router = express.Router();
@@ -110,6 +111,50 @@ router.use(protect, authorize('ADMIN'));
  *         description: Forbidden
  */
 router.get('/', getAllUsers);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/users
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * @swagger
+ * /admin/users:
+ *   post:
+ *     summary: Admin tạo tài khoản cho OWNER, JOCKEY, REFEREE
+ *     tags: [Admin - Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *               - fullName
+ *               - role
+ *             properties:
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *               fullName:
+ *                 type: string
+ *               role:
+ *                 type: string
+ *                 enum: [OWNER, JOCKEY, REFEREE]
+ *               phone:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Created successfully
+ *       400:
+ *         description: Invalid input or role
+ *       409:
+ *         description: Email already exists
+ */
+router.post('/', createUser);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /admin/users/:userId
