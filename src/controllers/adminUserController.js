@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const Jockey = require('../models/Jockey');
+const bcrypt = require('bcryptjs');
 
 // ─── GET /admin/users ─────────────────────────────────────────────────────────
 
@@ -244,6 +246,66 @@ exports.deleteUser = async (req, res) => {
       userId: user._id,
       message: 'User deleted successfully',
       deletedAt: user.updatedAt,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── POST /admin/users ────────────────────────────────────────────────────────
+
+/**
+ * @desc  Admin tạo tài khoản cho OWNER, JOCKEY, REFEREE
+ * @route POST /admin/users
+ * @access ADMIN
+ */
+exports.createUser = async (req, res) => {
+  try {
+    const { email, password, fullName, role, phone } = req.body;
+
+    const allowedRoles = ['OWNER', 'JOCKEY', 'REFEREE'];
+    if (!role || !allowedRoles.includes(role)) {
+      return res.status(400).json({
+        message: `Role must be one of: ${allowedRoles.join(', ')}`,
+      });
+    }
+
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(409).json({ message: 'EMAIL_ALREADY_EXISTS' });
+    }
+
+    if (!password || password.length < 8) {
+      return res.status(400).json({ message: 'INVALID_PASSWORD_FORMAT' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    const user = await User.create({
+      email,
+      password: hashedPassword,
+      fullName,
+      role,
+      phone,
+    });
+
+    if (role === 'JOCKEY') {
+      await Jockey.create({
+        userId: user._id,
+        fullName: fullName,
+        phone: phone || '',
+      });
+    }
+
+    res.status(201).json({
+      userId: user._id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      phone: user.phone,
+      status: user.status,
+      createdAt: user.createdAt,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

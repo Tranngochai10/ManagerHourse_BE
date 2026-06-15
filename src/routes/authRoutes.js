@@ -7,7 +7,8 @@ const {
   logout,
   getMe,
   updateMe,
-  changePassword
+  changePassword,
+  resetPoints
 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 
@@ -22,7 +23,7 @@ const { protect } = require('../middleware/authMiddleware');
  * @swagger
  * /auth/register:
  *   post:
- *     summary: Register a new account (Owner/Jockey/Spectator)
+ *     summary: Register a new account (Spectator)
  *     tags: [Auth]
  *     security: []
  *     requestBody:
@@ -35,7 +36,6 @@ const { protect } = require('../middleware/authMiddleware');
  *               - email
  *               - password
  *               - fullName
- *               - role
  *             properties:
  *               email:
  *                 type: string
@@ -43,9 +43,6 @@ const { protect } = require('../middleware/authMiddleware');
  *                 type: string
  *               fullName:
  *                 type: string
- *               role:
- *                 type: string
- *                 enum: [OWNER, JOCKEY, SPECTATOR]
  *               phone:
  *                 type: string
  *     responses:
@@ -201,5 +198,25 @@ router.put('/me', protect, updateMe);
  *         description: User not found
  */
 router.post('/change-password', protect, changePassword);
+
+/**
+ * @swagger
+ * /auth/reset-points:
+ *   post:
+ *     summary: Reset virtual points back to default balance (Spectator only)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Points reset successfully
+ *       400:
+ *         description: Not eligible to reset (has enough points or within 3 days limit)
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (only Spectators allowed)
+ */
+router.post('/reset-points', protect, resetPoints);
 
 module.exports = router;

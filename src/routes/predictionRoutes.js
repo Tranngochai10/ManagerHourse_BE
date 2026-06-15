@@ -25,7 +25,7 @@ const router = express.Router();
  * @swagger
  * /races/{raceId}/predictions/open:
  *   get:
- *     summary: Check if race is still open for predictions
+ *     summary: "[Public] Check if race is still open for predictions"
  *     tags: [Prediction (Dự đoán kết quả)]
  *     parameters:
  *       - in: path
@@ -46,7 +46,7 @@ router.get("/races/:raceId/predictions/open", checkRaceOpen);
  * @swagger
  * /races/{raceId}/predictions:
  *   post:
- *     summary: Spectator places a prediction (bet)
+ *     summary: "[Spectator] Places a prediction (bet)"
  *     tags: [Prediction (Dự đoán kết quả)]
  *     security:
  *       - bearerAuth: []
@@ -95,7 +95,7 @@ router.post(
  * @swagger
  * /me/predictions:
  *   get:
- *     summary: Get all my predictions
+ *     summary: "[Spectator] Get all my predictions"
  *     tags: [Prediction (Dự đoán kết quả)]
  *     security:
  *       - bearerAuth: []
@@ -130,7 +130,7 @@ router.get(
  * @swagger
  * /me/predictions/{predId}:
  *   get:
- *     summary: Get prediction details and result
+ *     summary: "[Spectator] Get prediction details and result"
  *     tags: [Prediction (Dự đoán kết quả)]
  *     security:
  *       - bearerAuth: []
@@ -159,7 +159,7 @@ router.get(
  * @swagger
  * /me/notifications:
  *   get:
- *     summary: Get notifications about predictions
+ *     summary: "[Spectator] Get notifications about predictions"
  *     tags: [Prediction (Dự đoán kết quả)]
  *     security:
  *       - bearerAuth: []
@@ -193,7 +193,7 @@ router.get(
  * @swagger
  * /admin/races/{raceId}/predictions/close:
  *   post:
- *     summary: Admin closes predictions for a race (before race starts)
+ *     summary: "[Admin] Closes predictions for a race (before race starts)"
  *     tags: [Prediction (Dự đoán kết quả)]
  *     security:
  *       - bearerAuth: []
@@ -222,7 +222,7 @@ router.post(
  * @swagger
  * /admin/races/{raceId}/predictions/settle:
  *   post:
- *     summary: Admin settles predictions (after race result published)
+ *     summary: "[Admin] Settles predictions (after race result published)"
  *     tags: [Prediction (Dự đoán kết quả)]
  *     security:
  *       - bearerAuth: []
@@ -251,7 +251,7 @@ router.post(
  * @swagger
  * /admin/predictions:
  *   get:
- *     summary: Admin manages all predictions
+ *     summary: "[Admin] Manages all predictions"
  *     tags: [Prediction (Dự đoán kết quả)]
  *     security:
  *       - bearerAuth: []
@@ -292,7 +292,7 @@ router.get(
  * @swagger
  * /admin/predictions/stats:
  *   get:
- *     summary: Admin gets prediction statistics by race
+ *     summary: "[Admin] Gets prediction statistics by race"
  *     tags: [Prediction (Dự đoán kết quả)]
  *     security:
  *       - bearerAuth: []
