@@ -134,6 +134,15 @@ exports.changeUserRole = async (req, res) => {
     user.role = role;
     await user.save();
 
+    if (role === 'JOCKEY') {
+      const jockeyExists = await Jockey.findOne({ userId: user._id });
+      if (!jockeyExists) {
+        await Jockey.create({
+          userId: user._id,
+        });
+      }
+    }
+
     res.status(200).json({
       userId: user._id,
       role: user.role,
