@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const Prediction = require("../models/Prediction");
 const Notification = require("../models/Notification");
 const Race = require("../models/Race");
@@ -14,18 +15,26 @@ exports.checkRaceOpen = async (req, res) => {
   try {
     const { raceId } = req.params;
 
+    // Validate raceId format
+    if (!mongoose.Types.ObjectId.isValid(raceId)) {
+      return res.status(400).json({ message: "Invalid race ID format" });
+    }
+
     const race = await Race.findById(raceId);
     if (!race) {
       return res.status(404).json({ message: "Race not found" });
     }
 
-    // Check if there are any OPEN predictions for this race
-    const openPredictions = await Prediction.findOne({
-      raceId,
-      status: "OPEN",
-    });
+    const now = new Date();
+    const scheduledTime = new Date(race.scheduledAt);
 
-    const isOpen = !!openPredictions;
+    const nowUtc = now.getTime();
+    const scheduledUtc = scheduledTime.getTime();
+
+    // Only open if status is SCHEDULED or ONGOING and current time is before scheduled time
+    const isOpen =
+      (race.status === "SCHEDULED" || race.status === "ONGOING") &&
+      nowUtc < scheduledUtc;
 
     res.status(200).json({
       raceId,
@@ -46,6 +55,16 @@ exports.placePrediction = async (req, res) => {
     const { horseId, betAmount } = req.body;
     const spectatorId = req.user._id;
 
+    // Validate raceId format
+    if (!mongoose.Types.ObjectId.isValid(raceId)) {
+      return res.status(400).json({ message: "Invalid race ID format" });
+    }
+
+    // Validate horseId format
+    if (horseId && !mongoose.Types.ObjectId.isValid(horseId)) {
+      return res.status(400).json({ message: "Invalid horse ID format" });
+    }
+
     // Validate betAmount
     if (!betAmount || betAmount < MIN_BET || betAmount > MAX_BET) {
       return res.status(400).json({
@@ -53,18 +72,33 @@ exports.placePrediction = async (req, res) => {
       });
     }
 
-    // Check race exists and is not completed
+    // Check race exists and is not completed/cancelled/draft/etc.
     const race = await Race.findById(raceId);
     if (!race) {
       return res.status(404).json({ message: "Race not found" });
     }
-    if (race.status === "COMPLETED" || race.status === "CANCELLED") {
+
+    const now = new Date();
+    const scheduledTime = new Date(race.scheduledAt);
+
+    const nowUtc = now.getTime();
+    const scheduledUtc = scheduledTime.getTime();
+
+    // Enforce status conditions
+    if (race.status !== "SCHEDULED" && race.status !== "ONGOING") {
       return res.status(400).json({
-        message: `Cannot place prediction for ${race.status} race`,
+        message: `Cannot place prediction for race with status ${race.status}`,
       });
     }
 
-    // Check horse exists and is registered for this race
+    // Enforce time condition
+    if (nowUtc >= scheduledUtc) {
+      return res.status(400).json({
+        message: "Predictions are closed for this race",
+      });
+    }
+
+    // Check horse exists
     const horse = await Horse.findById(horseId);
     if (!horse) {
       return res.status(404).json({ message: "Horse not found" });
@@ -230,6 +264,11 @@ exports.closePredictions = async (req, res) => {
   try {
     const { raceId } = req.params;
 
+    // Validate raceId format
+    if (!mongoose.Types.ObjectId.isValid(raceId)) {
+      return res.status(400).json({ message: "Invalid race ID format" });
+    }
+
     const race = await Race.findById(raceId);
     if (!race) {
       return res.status(404).json({ message: "Race not found" });
@@ -258,6 +297,11 @@ exports.closePredictions = async (req, res) => {
 exports.settlePredictions = async (req, res) => {
   try {
     const { raceId } = req.params;
+
+    // Validate raceId format
+    if (!mongoose.Types.ObjectId.isValid(raceId)) {
+      return res.status(400).json({ message: "Invalid race ID format" });
+    }
 
     // Get race results
     const results = await Result.find({ raceId });
