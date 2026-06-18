@@ -38,14 +38,6 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
-  points: {
-    type: Number,
-    default: 10000000, // 10,000,000 virtual points starting balance
-  },
-  lastPointsResetAt: {
-    type: Date,
-    default: null,
-  },
 }, {
   timestamps: true,
 });
