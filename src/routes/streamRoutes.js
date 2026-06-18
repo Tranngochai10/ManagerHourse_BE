@@ -99,7 +99,7 @@ router.post('/admin/races/:raceId/stream/stop', protect, authorize('ADMIN'), sto
  * @swagger
  * /races/{raceId}/stream:
  *   get:
- *     summary: Get HLS streaming URL for a race (SPECTATOR only)
+ *     summary: Get HLS streaming URL for a race (All roles)
  *     tags: [Streams]
  *     security:
  *       - bearerAuth: []
@@ -131,6 +131,6 @@ router.post('/admin/races/:raceId/stream/stop', protect, authorize('ADMIN'), sto
  *       404:
  *         description: Race not found
  */
-router.get('/races/:raceId/stream', protect, authorize('SPECTATOR'), getStream);
+router.get('/races/:raceId/stream', protect, getStream);
 
 module.exports = router;
