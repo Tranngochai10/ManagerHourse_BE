@@ -1,5 +1,8 @@
 const User = require("../models/User");
 const Jockey = require("../models/Jockey");
+const Owner = require("../models/Owner");
+const Referee = require("../models/Referee");
+const Spectator = require("../models/Spectator");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 
@@ -43,11 +46,15 @@ exports.register = async (req, res) => {
       phone,
     });
 
+    const spectator = await Spectator.create({
+      userId: user._id,
+    });
+
     res.status(201).json({
       userId: user._id,
       email: user.email,
       role: user.role,
-      points: user.points,
+      points: spectator.points,
       createdAt: user.createdAt,
     });
   } catch (error) {
@@ -80,12 +87,21 @@ exports.login = async (req, res) => {
     const tokens = generateTokens(user);
 
     // Auto-reset points for Spectator if balance is low and 3 days have passed since last reset
-    if (user.role === 'SPECTATOR' && (user.points || 0) < 100000) {
-      const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-      if (!user.lastPointsResetAt || (Date.now() - new Date(user.lastPointsResetAt).getTime() >= THREE_DAYS_MS)) {
-        user.points = 10000000;
-        user.lastPointsResetAt = new Date();
+    let points = 0;
+    if (user.role === 'SPECTATOR') {
+      let spectatorProfile = await Spectator.findOne({ userId: user._id });
+      if (!spectatorProfile) {
+        spectatorProfile = await Spectator.create({ userId: user._id });
       }
+      if ((spectatorProfile.points || 0) < 100000) {
+        const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+        if (!spectatorProfile.lastPointsResetAt || (Date.now() - new Date(spectatorProfile.lastPointsResetAt).getTime() >= THREE_DAYS_MS)) {
+          spectatorProfile.points = 10000000;
+          spectatorProfile.lastPointsResetAt = new Date();
+          await spectatorProfile.save();
+        }
+      }
+      points = spectatorProfile.points;
     }
 
     // Save refresh token in DB
@@ -100,7 +116,7 @@ exports.login = async (req, res) => {
         userId: user._id,
         role: user.role,
         fullName: user.fullName,
-        points: user.points,
+        points: points,
       },
     });
   } catch (error) {
@@ -166,7 +182,35 @@ exports.logout = async (req, res) => {
 // @access  Private
 exports.getMe = async (req, res) => {
   try {
-    res.status(200).json(req.user); // req.user is set by protect middleware
+    const user = req.user.toObject ? req.user.toObject() : req.user;
+    let profile = null;
+
+    if (user.role === 'JOCKEY') {
+      profile = await Jockey.findOne({ userId: user._id });
+      if (!profile) {
+        profile = await Jockey.create({ userId: user._id });
+      }
+    } else if (user.role === 'OWNER') {
+      profile = await Owner.findOne({ userId: user._id });
+      if (!profile) {
+        profile = await Owner.create({ userId: user._id });
+      }
+    } else if (user.role === 'REFEREE') {
+      profile = await Referee.findOne({ userId: user._id });
+      if (!profile) {
+        profile = await Referee.create({ userId: user._id });
+      }
+    } else if (user.role === 'SPECTATOR') {
+      profile = await Spectator.findOne({ userId: user._id });
+      if (!profile) {
+        profile = await Spectator.create({ userId: user._id });
+      }
+    }
+
+    res.status(200).json({
+      ...user,
+      profile
+    });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
@@ -185,13 +229,23 @@ exports.updateMe = async (req, res) => {
       user.phone = phone !== undefined ? phone : user.phone;
 
       const updatedUser = await user.save();
+
+      let points = 0;
+      if (updatedUser.role === 'SPECTATOR') {
+        let spectatorProfile = await Spectator.findOne({ userId: updatedUser._id });
+        if (!spectatorProfile) {
+          spectatorProfile = await Spectator.create({ userId: updatedUser._id });
+        }
+        points = spectatorProfile.points;
+      }
+
       res.status(200).json({
         userId: updatedUser._id,
         email: updatedUser.email,
         fullName: updatedUser.fullName,
         role: updatedUser.role,
         phone: updatedUser.phone,
-        points: updatedUser.points,
+        points: points,
       });
     } else {
       res.status(404).json({ message: "User not found" });
@@ -252,9 +306,14 @@ exports.resetPoints = async (req, res) => {
       return res.status(403).json({ message: "Only Spectator accounts can reset points" });
     }
 
+    let spectatorProfile = await Spectator.findOne({ userId: user._id });
+    if (!spectatorProfile) {
+      spectatorProfile = await Spectator.create({ userId: user._id });
+    }
+
     // Only allow reset if current points are less than the minimum bet (100,000)
     const MIN_BET = 100000;
-    if (user.points >= MIN_BET) {
+    if (spectatorProfile.points >= MIN_BET) {
       return res.status(400).json({
         message: "You still have enough points to bet. Minimum required is less than " + MIN_BET,
       });
@@ -262,8 +321,8 @@ exports.resetPoints = async (req, res) => {
 
     // Check if 3 days have passed since last reset
     const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-    if (user.lastPointsResetAt) {
-      const timeSinceLastReset = Date.now() - new Date(user.lastPointsResetAt).getTime();
+    if (spectatorProfile.lastPointsResetAt) {
+      const timeSinceLastReset = Date.now() - new Date(spectatorProfile.lastPointsResetAt).getTime();
       if (timeSinceLastReset < THREE_DAYS_MS) {
         const remainingTimeMs = THREE_DAYS_MS - timeSinceLastReset;
         const remainingDays = Math.ceil(remainingTimeMs / (24 * 60 * 60 * 1000));
@@ -275,14 +334,14 @@ exports.resetPoints = async (req, res) => {
     }
 
     // Reset points
-    user.points = 10000000;
-    user.lastPointsResetAt = new Date();
-    await user.save();
+    spectatorProfile.points = 10000000;
+    spectatorProfile.lastPointsResetAt = new Date();
+    await spectatorProfile.save();
 
     res.status(200).json({
       message: "Points reset to default balance successfully",
-      points: user.points,
-      lastPointsResetAt: user.lastPointsResetAt,
+      points: spectatorProfile.points,
+      lastPointsResetAt: spectatorProfile.lastPointsResetAt,
     });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });

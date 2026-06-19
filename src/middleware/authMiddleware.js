@@ -22,12 +22,16 @@ const protect = async (req, res, next) => {
     }
 
     // Auto-reset points for Spectator if balance is low and 3 days have passed since last reset
-    if (user.role === 'SPECTATOR' && (user.points || 0) < 100000) {
-      const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
-      if (!user.lastPointsResetAt || (Date.now() - new Date(user.lastPointsResetAt).getTime() >= THREE_DAYS_MS)) {
-        user.points = 10000000;
-        user.lastPointsResetAt = new Date();
-        await user.save();
+    if (user.role === 'SPECTATOR') {
+      const Spectator = require('../models/Spectator');
+      const spectatorProfile = await Spectator.findOne({ userId: user._id });
+      if (spectatorProfile && (spectatorProfile.points || 0) < 100000) {
+        const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+        if (!spectatorProfile.lastPointsResetAt || (Date.now() - new Date(spectatorProfile.lastPointsResetAt).getTime() >= THREE_DAYS_MS)) {
+          spectatorProfile.points = 10000000;
+          spectatorProfile.lastPointsResetAt = new Date();
+          await spectatorProfile.save();
+        }
       }
     }
     

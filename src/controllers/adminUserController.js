@@ -1,5 +1,8 @@
 const User = require('../models/User');
 const Jockey = require('../models/Jockey');
+const Owner = require('../models/Owner');
+const Referee = require('../models/Referee');
+const Spectator = require('../models/Spectator');
 const bcrypt = require('bcryptjs');
 
 // ─── GET /admin/users ─────────────────────────────────────────────────────────
@@ -138,6 +141,27 @@ exports.changeUserRole = async (req, res) => {
       const jockeyExists = await Jockey.findOne({ userId: user._id });
       if (!jockeyExists) {
         await Jockey.create({
+          userId: user._id,
+        });
+      }
+    } else if (role === 'OWNER') {
+      const ownerExists = await Owner.findOne({ userId: user._id });
+      if (!ownerExists) {
+        await Owner.create({
+          userId: user._id,
+        });
+      }
+    } else if (role === 'REFEREE') {
+      const refereeExists = await Referee.findOne({ userId: user._id });
+      if (!refereeExists) {
+        await Referee.create({
+          userId: user._id,
+        });
+      }
+    } else if (role === 'SPECTATOR') {
+      const spectatorExists = await Spectator.findOne({ userId: user._id });
+      if (!spectatorExists) {
+        await Spectator.create({
           userId: user._id,
         });
       }
@@ -304,6 +328,18 @@ exports.createUser = async (req, res) => {
         userId: user._id,
         fullName: fullName,
         phone: phone || '',
+      });
+    } else if (role === 'OWNER') {
+      await Owner.create({
+        userId: user._id,
+      });
+    } else if (role === 'REFEREE') {
+      await Referee.create({
+        userId: user._id,
+      });
+    } else if (role === 'SPECTATOR') {
+      await Spectator.create({
+        userId: user._id,
       });
     }
 
