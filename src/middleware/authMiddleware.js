@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const checkExpiredInvitationsAndFallback = require('../utils/invitationFallback');
 
 const protect = async (req, res, next) => {
   let token;
@@ -30,6 +31,11 @@ const protect = async (req, res, next) => {
         await user.save();
       }
     }
+
+    // Tự động kiểm tra và hủy các đăng ký đua khi lời mời Jockey đã hết hạn và cận giờ đua
+    checkExpiredInvitationsAndFallback().catch((err) =>
+      console.error('Error running checkExpiredInvitationsAndFallback:', err)
+    );
     
     req.user = user;
     next();
