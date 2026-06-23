@@ -282,3 +282,146 @@ exports.rejectRaceRegistration = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+// POST /admin/races/:raceId/assign-horse
+exports.assignHorse = async (req, res) => {
+  try {
+    const race = await Race.findById(req.params.raceId);
+    if (!race) {
+      return res.status(404).json({ message: 'Race not found' });
+    }
+
+    if (['COMPLETED', 'CANCELLED'].includes(race.status)) {
+      return res.status(400).json({ message: 'Cannot assign horse to a completed or cancelled race' });
+    }
+
+    const { horseId } = req.body;
+    if (!horseId) {
+      return res.status(400).json({ message: 'horseId is required' });
+    }
+
+    // Kiểm tra ngựa tồn tại và đã được approved
+    const horse = await Horse.findById(horseId);
+    if (!horse) {
+      return res.status(404).json({ message: 'Horse not found' });
+    }
+    if (horse.status !== 'APPROVED') {
+      return res.status(400).json({ message: `Horse must be APPROVED. Current status: ${horse.status}` });
+    }
+
+    // Kiểm tra số lượng ngựa hiện tại trong race
+    const currentCount = await RaceRegistration.countDocuments({
+      raceId: race._id,
+      status: { $in: ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED'] },
+    });
+    if (currentCount >= race.maxHorses) {
+      return res.status(400).json({ message: `Race is full. Max horses: ${race.maxHorses}` });
+    }
+
+    // Tạo RaceRegistration (throw 11000 nếu đã tồn tại)
+    const reg = new RaceRegistration({
+      horseId,
+      raceId: race._id,
+      status: 'APPROVED',
+      confirmedByOwner: false,
+    });
+    await reg.save();
+
+    return res.status(201).json({
+      registrationId: reg._id,
+      raceId: race._id,
+      raceName: race.name,
+      horseId: horse._id,
+      horseName: horse.name,
+      status: reg.status,
+      message: 'Horse assigned to race successfully',
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({ message: 'This horse is already registered to this race' });
+    }
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /admin/races/advance-winner
+// Chuyển ngựa thắng (vị trí 1) từ race hiện tại sang race vòng tiếp theo
+exports.advanceWinner = async (req, res) => {
+  try {
+    const { fromRaceId, toRaceId, topN = 1 } = req.body;
+
+    if (!fromRaceId || !toRaceId) {
+      return res.status(400).json({ message: 'fromRaceId and toRaceId are required' });
+    }
+
+    const fromRace = await Race.findById(fromRaceId);
+    if (!fromRace) {
+      return res.status(404).json({ message: 'Source race (fromRaceId) not found' });
+    }
+    if (fromRace.status !== 'COMPLETED') {
+      return res.status(400).json({ message: 'Source race must be COMPLETED before advancing winners' });
+    }
+
+    const toRace = await Race.findById(toRaceId);
+    if (!toRace) {
+      return res.status(404).json({ message: 'Target race (toRaceId) not found' });
+    }
+    if (['COMPLETED', 'CANCELLED'].includes(toRace.status)) {
+      return res.status(400).json({ message: 'Target race must not be COMPLETED or CANCELLED' });
+    }
+
+    // Lấy kết quả của race nguồn, sắp xếp theo vị trí
+    const Result = require('../models/Result');
+    const winners = await Result.find({ raceId: fromRaceId, status: 'FINISHED' })
+      .sort({ position: 1 })
+      .limit(topN)
+      .populate('horseId', 'name status');
+
+    if (winners.length === 0) {
+      return res.status(400).json({ message: 'No finished results found for source race' });
+    }
+
+    // Kiểm tra slot còn trống của race đích
+    const toRaceCount = await RaceRegistration.countDocuments({
+      raceId: toRaceId,
+      status: { $in: ['PENDING_APPROVAL', 'APPROVED', 'CONFIRMED'] },
+    });
+    if (toRaceCount + winners.length > toRace.maxHorses) {
+      return res.status(400).json({
+        message: `Target race does not have enough slots. Available: ${toRace.maxHorses - toRaceCount}, Need: ${winners.length}`,
+      });
+    }
+
+    // Assign từng winner vào race đích
+    const assigned = [];
+    const skipped = [];
+    for (const winner of winners) {
+      try {
+        const reg = new RaceRegistration({
+          horseId: winner.horseId._id,
+          raceId: toRaceId,
+          status: 'APPROVED',
+          confirmedByOwner: false,
+        });
+        await reg.save();
+        assigned.push({ horseId: winner.horseId._id, horseName: winner.horseId.name, position: winner.position });
+      } catch (dupErr) {
+        if (dupErr.code === 11000) {
+          skipped.push({ horseId: winner.horseId._id, horseName: winner.horseId.name, reason: 'Already registered' });
+        } else {
+          throw dupErr;
+        }
+      }
+    }
+
+    return res.status(200).json({
+      message: `Advanced ${assigned.length} winner(s) from race "${fromRace.name}" to race "${toRace.name}"`,
+      fromRace: { id: fromRace._id, name: fromRace.name },
+      toRace: { id: toRace._id, name: toRace.name },
+      assigned,
+      skipped,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
