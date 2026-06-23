@@ -7,6 +7,8 @@ const {
   getRaceRegistrations,
   approveRaceRegistration,
   rejectRaceRegistration,
+  assignHorse,
+  advanceWinner,
 } = require("../controllers/adminRaceController");
 
 const router = express.Router();
@@ -347,5 +349,121 @@ router.patch("/registrations/:regId/approve", approveRaceRegistration);
  *         description: Registration not found
  */
 router.patch("/registrations/:regId/reject", rejectRaceRegistration);
+
+/**
+ * @swagger
+ * /admin/races/{raceId}/assign-horse:
+ *   post:
+ *     summary: Thêm một con ngựa vào race cụ thể (admin assign thủ công)
+ *     tags: [Admin - Races]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: raceId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Race ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - horseId
+ *             properties:
+ *               horseId:
+ *                 type: string
+ *                 description: ID của ngựa muốn thêm vào race
+ *                 example: "665f1a2b3c4d5e6f7a8b9c0d"
+ *     responses:
+ *       201:
+ *         description: Assign ngựa thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 registrationId:
+ *                   type: string
+ *                 raceId:
+ *                   type: string
+ *                 raceName:
+ *                   type: string
+ *                 horseId:
+ *                   type: string
+ *                 horseName:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   example: APPROVED
+ *       400:
+ *         description: Race đầy slot / ngựa chưa APPROVED / race đã kết thúc
+ *       404:
+ *         description: Race hoặc Horse không tồn tại
+ *       409:
+ *         description: Ngựa đã đăng ký race này rồi
+ */
+router.post("/:raceId/assign-horse", assignHorse);
+
+/**
+ * @swagger
+ * /admin/races/advance-winner:
+ *   post:
+ *     summary: Chuyển ngựa thắng từ race này sang race vòng tiếp
+ *     tags: [Admin - Races]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - fromRaceId
+ *               - toRaceId
+ *             properties:
+ *               fromRaceId:
+ *                 type: string
+ *                 description: ID của race vòng trước (đã COMPLETED)
+ *                 example: "665f1a2b3c4d5e6f7a8b9c0d"
+ *               toRaceId:
+ *                 type: string
+ *                 description: ID của race vòng tiếp theo
+ *                 example: "665f1a2b3c4d5e6f7a8b9c1e"
+ *               topN:
+ *                 type: integer
+ *                 default: 1
+ *                 description: Số ngựa được thăng tiến (tính từ vị trí 1)
+ *                 example: 3
+ *     responses:
+ *       200:
+ *         description: Chuyển thắng lợi thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                 fromRace:
+ *                   type: object
+ *                 toRace:
+ *                   type: object
+ *                 assigned:
+ *                   type: array
+ *                   description: Danh sách ngựa đã được chuyển lên
+ *                 skipped:
+ *                   type: array
+ *                   description: Danh sách ngựa bị bỏ qua (ví dụ đã đăng ký sẵn)
+ *       400:
+ *         description: Race nguồn chưa COMPLETED / không có kết quả / race đích đầy slot
+ *       404:
+ *         description: Race không tồn tại
+ */
+router.post("/advance-winner", advanceWinner);
 
 module.exports = router;
