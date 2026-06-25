@@ -129,18 +129,22 @@ exports.placePrediction = async (req, res) => {
       });
     }
 
-    // Check points balance
+    // Ensure spectator profile exists
     let spectatorProfile = await Spectator.findOne({ userId: spectatorId });
     if (!spectatorProfile) {
       spectatorProfile = await Spectator.create({ userId: spectatorId });
     }
-    if (spectatorProfile.points < betAmount) {
+
+    // Deduct points atomically
+    const updatedProfile = await Spectator.findOneAndUpdate(
+      { userId: spectatorId, points: { $gte: betAmount } },
+      { $inc: { points: -betAmount } },
+      { new: true }
+    );
+
+    if (!updatedProfile) {
       return res.status(400).json({ message: "INSUFFICIENT_POINTS" });
     }
-
-    // Deduct points
-    spectatorProfile.points -= betAmount;
-    await spectatorProfile.save();
 
     // Create prediction
     const prediction = new Prediction({
@@ -348,12 +352,11 @@ exports.settlePredictions = async (req, res) => {
         notificationMessage = `Congratulations! You won! Prize: ${prediction.prizeAmount.toLocaleString()} points`;
         notificationTitle = "Prediction Won!";
 
-        // Credit points to spectator
-        const spectator = await Spectator.findOne({ userId: prediction.spectatorId });
-        if (spectator) {
-          spectator.points = (spectator.points || 0) + prediction.prizeAmount;
-          await spectator.save();
-        }
+        // Credit points to spectator atomically
+        await Spectator.updateOne(
+          { userId: prediction.spectatorId },
+          { $inc: { points: prediction.prizeAmount } }
+        );
       }
 
       // Update prediction

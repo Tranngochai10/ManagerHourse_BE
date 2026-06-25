@@ -6,7 +6,6 @@ const TournamentAuditLog = require('../models/TournamentAuditLog');
 const Schedule = require('../models/Schedule');
 const RaceRegistration = require('../models/RaceRegistration');
 const Horse = require('../models/Horse');
-const RaceRegistration = require('../models/RaceRegistration');
 
 // POST /admin/tournaments
 exports.createTournament = async (req, res) => {
@@ -127,17 +126,11 @@ exports.closeRegistration = async (req, res) => {
   try {
     const { tournamentId } = req.params;
     const { trigger = 'manual' } = req.body;
-// GET /admin/tournaments/:tournamentId/registrations
-exports.getTournamentRegistrations = async (req, res) => {
-  try {
-    const { tournamentId } = req.params;
-    const { status } = req.query;
 
     const tournament = await Tournament.findById(tournamentId);
     if (!tournament) {
       return res.status(404).json({ message: 'Tournament not found' });
     }
-
 
     // Allow closing only if in DRAFT or PUBLISHED status
     if (tournament.status !== 'PUBLISHED' && tournament.status !== 'DRAFT') {
@@ -184,6 +177,23 @@ exports.getTournamentRegistrations = async (req, res) => {
       totalPending,
       autoRejectedCount: totalPending,
       rejectedIds,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// GET /admin/tournaments/:tournamentId/registrations
+exports.getTournamentRegistrations = async (req, res) => {
+  try {
+    const { tournamentId } = req.params;
+    const { status } = req.query;
+
+    const tournament = await Tournament.findById(tournamentId);
+    if (!tournament) {
+      return res.status(404).json({ message: 'Tournament not found' });
+    }
+
     const filter = { tournamentId };
     if (status) filter.status = status;
 
@@ -409,6 +419,12 @@ exports.generateBracket = async (req, res) => {
       status: 'BRACKET_GENERATED',
       racesCreated: racesCreatedCount,
       bracket,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // PATCH /admin/tournaments/registrations/:registrationId
 exports.updateTournamentRegistration = async (req, res) => {
   try {
@@ -471,12 +487,6 @@ exports.updateSeeds = async (req, res) => {
   try {
     const { tournamentId } = req.params;
     const { seeds = [], applyToExistingBracket = false } = req.body;
-// POST /admin/tournaments/:tournamentId/generate-heats
-// Tự động chia các ngựa APPROVED thành các heat (Race) trong tournament
-exports.generateHeats = async (req, res) => {
-  try {
-    const { tournamentId } = req.params;
-    const { horsesPerHeat = 8, distanceMeters = 1200, scheduledAt } = req.body;
 
     const tournament = await Tournament.findById(tournamentId);
     if (!tournament) {
@@ -591,6 +601,23 @@ exports.withdrawHorse = async (req, res) => {
       tournamentId,
       affectedRaces,
       updatedBracket: tournament.bracket,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Tự động chia các ngựa APPROVED thành các heat (Race) trong tournament
+exports.generateHeats = async (req, res) => {
+  try {
+    const { tournamentId } = req.params;
+    const { horsesPerHeat = 8, distanceMeters = 1200, scheduledAt } = req.body;
+
+    const tournament = await Tournament.findById(tournamentId);
+    if (!tournament) {
+      return res.status(404).json({ message: 'Tournament not found' });
+    }
+
     // Cho phép generate heats khi tournament đã đóng đăng ký hoặc đang tiến hành
     if (!['PUBLISHED', 'REGISTRATION_CLOSED', 'BRACKET_GENERATED', 'ONGOING'].includes(tournament.status)) {
       return res.status(400).json({
