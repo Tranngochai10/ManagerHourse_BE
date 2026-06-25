@@ -100,8 +100,10 @@ exports.deleteTournament = async (req, res) => {
     }
 
     // Only allow delete if tournament hasn't started
-    if (['ONGOING', 'COMPLETED'].includes(tournament.status)) {
-      return res.status(400).json({ message: 'Cannot delete a tournament that has already started or completed' });
+    if (['REGISTRATION_CLOSED', 'BRACKET_GENERATED', 'ONGOING', 'COMPLETED'].includes(tournament.status)) {
+      return res.status(400).json({
+        message: 'Cannot delete a tournament that has closed registration, generated bracket, started, or completed',
+      });
     }
 
     // Also delete all races belonging to this tournament
@@ -224,9 +226,10 @@ exports.generateHeats = async (req, res) => {
       return res.status(404).json({ message: 'Tournament not found' });
     }
 
-    if (!['PUBLISHED', 'ONGOING'].includes(tournament.status)) {
+    // Cho phép generate heats khi tournament đã đóng đăng ký hoặc đang tiến hành
+    if (!['PUBLISHED', 'REGISTRATION_CLOSED', 'BRACKET_GENERATED', 'ONGOING'].includes(tournament.status)) {
       return res.status(400).json({
-        message: `Can only generate heats for PUBLISHED or ONGOING tournaments. Current: ${tournament.status}`,
+        message: `Can only generate heats for PUBLISHED, REGISTRATION_CLOSED, BRACKET_GENERATED or ONGOING tournaments. Current: ${tournament.status}`,
       });
     }
 
@@ -290,9 +293,16 @@ exports.generateHeats = async (req, res) => {
       });
     }
 
+    // Tự động chuyển trạng thái tournament sang BRACKET_GENERATED nếu chưa phải ONGOING
+    if (tournament.status !== 'ONGOING') {
+      tournament.status = 'BRACKET_GENERATED';
+      await tournament.save();
+    }
+
     return res.status(201).json({
       message: `Generated ${createdRaces.length} heat(s) successfully`,
       tournamentId,
+      tournamentStatus: tournament.status,
       totalHorses: approvedRegs.length,
       heatsCreated: createdRaces.length,
       races: createdRaces,
