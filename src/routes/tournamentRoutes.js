@@ -1,6 +1,8 @@
 const express = require('express');
 const { getTournaments, getTournamentById, getBracket } = require('../controllers/tournamentController');
 
+const { getTournaments, getTournamentById, registerToTournament } = require('../controllers/tournamentController');
+const { protect } = require('../middleware/authMiddleware');
 const router = express.Router();
 
 /**
@@ -79,6 +81,12 @@ router.get('/:tournId', getTournamentById);
  *   get:
  *     summary: Get bracket structure for tournament
  *     tags: [Tournaments]
+ * /tournaments/{tournamentId}/register:
+ *   post:
+ *     summary: Đăng ký ngựa vào tournament (chỉ OWNER)
+ *     tags: [Tournaments]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: tournamentId
@@ -92,5 +100,48 @@ router.get('/:tournId', getTournamentById);
  *         description: Tournament not found or bracket not generated
  */
 router.get('/:tournamentId/bracket', getBracket);
+ *         description: Tournament ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - horseId
+ *             properties:
+ *               horseId:
+ *                 type: string
+ *                 description: ID của ngựa muốn đăng ký
+ *                 example: "665f1a2b3c4d5e6f7a8b9c0d"
+ *     responses:
+ *       201:
+ *         description: Đăng ký thành công, chờ admin duyệt
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 registrationId:
+ *                   type: string
+ *                 tournamentId:
+ *                   type: string
+ *                 horseId:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   example: PENDING
+ *                 createdAt:
+ *                   type: string
+ *       400:
+ *         description: Tournament đóng đăng ký / ngựa chưa APPROVED / đầy slot
+ *       403:
+ *         description: Không phải OWNER hoặc không sở hữu ngựa này
+ *       404:
+ *         description: Tournament hoặc Horse không tồn tại
+ *       409:
+ *         description: Ngựa đã đăng ký tournament này rồi
+ */
+router.post('/:tournamentId/register', protect, registerToTournament);
 
 module.exports = router;

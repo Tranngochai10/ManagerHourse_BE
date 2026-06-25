@@ -1,10 +1,12 @@
 const Tournament = require('../models/Tournament');
 const Race = require('../models/Race');
 const TournamentRegistration = require('../models/TournamentRegistration');
+
 const TournamentAuditLog = require('../models/TournamentAuditLog');
 const Schedule = require('../models/Schedule');
 const RaceRegistration = require('../models/RaceRegistration');
 const Horse = require('../models/Horse');
+const RaceRegistration = require('../models/RaceRegistration');
 
 // POST /admin/tournaments
 exports.createTournament = async (req, res) => {
@@ -103,8 +105,10 @@ exports.deleteTournament = async (req, res) => {
     }
 
     // Only allow delete if tournament hasn't started
-    if (['ONGOING', 'COMPLETED'].includes(tournament.status)) {
-      return res.status(400).json({ message: 'Cannot delete a tournament that has already started or completed' });
+    if (['REGISTRATION_CLOSED', 'BRACKET_GENERATED', 'ONGOING', 'COMPLETED'].includes(tournament.status)) {
+      return res.status(400).json({
+        message: 'Cannot delete a tournament that has closed registration, generated bracket, started, or completed',
+      });
     }
 
     // Also delete all races belonging to this tournament
@@ -117,16 +121,23 @@ exports.deleteTournament = async (req, res) => {
   }
 };
 
+
 // PATCH /admin/tournaments/:tournamentId/close-registration
 exports.closeRegistration = async (req, res) => {
   try {
     const { tournamentId } = req.params;
     const { trigger = 'manual' } = req.body;
+// GET /admin/tournaments/:tournamentId/registrations
+exports.getTournamentRegistrations = async (req, res) => {
+  try {
+    const { tournamentId } = req.params;
+    const { status } = req.query;
 
     const tournament = await Tournament.findById(tournamentId);
     if (!tournament) {
       return res.status(404).json({ message: 'Tournament not found' });
     }
+
 
     // Allow closing only if in DRAFT or PUBLISHED status
     if (tournament.status !== 'PUBLISHED' && tournament.status !== 'DRAFT') {
@@ -173,6 +184,30 @@ exports.closeRegistration = async (req, res) => {
       totalPending,
       autoRejectedCount: totalPending,
       rejectedIds,
+    const filter = { tournamentId };
+    if (status) filter.status = status;
+
+    const registrations = await TournamentRegistration.find(filter)
+      .populate({
+        path: 'horseId',
+        select: 'name breed age weight color gender status',
+        populate: { path: 'ownerId', select: 'fullName email phone' },
+      })
+      .populate('ownerId', 'fullName email phone')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      total: registrations.length,
+      tournament: { id: tournament._id, name: tournament.name, status: tournament.status },
+      registrations: registrations.map((r) => ({
+        registrationId: r._id,
+        horse: r.horseId,
+        owner: r.ownerId,
+        status: r.status,
+        rejectionReason: r.rejectionReason,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      })),
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -374,6 +409,57 @@ exports.generateBracket = async (req, res) => {
       status: 'BRACKET_GENERATED',
       racesCreated: racesCreatedCount,
       bracket,
+// PATCH /admin/tournaments/registrations/:registrationId
+exports.updateTournamentRegistration = async (req, res) => {
+  try {
+    const { registrationId } = req.params;
+    const { status, rejectionReason } = req.body;
+
+    const allowed = ['APPROVED', 'REJECTED'];
+    if (!status || !allowed.includes(status)) {
+      return res.status(400).json({ message: `status must be one of: ${allowed.join(', ')}` });
+    }
+
+    const registration = await TournamentRegistration.findById(registrationId)
+      .populate('horseId', 'name breed')
+      .populate('ownerId', 'fullName email')
+      .populate('tournamentId', 'name maxHorses');
+
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    if (registration.status !== 'PENDING') {
+      return res.status(400).json({
+        message: `Cannot update registration with status: ${registration.status}`,
+      });
+    }
+
+    // Nếu duyệt, kiểm tra tổng số đã APPROVED chưa vượt maxHorses
+    if (status === 'APPROVED') {
+      const approvedCount = await TournamentRegistration.countDocuments({
+        tournamentId: registration.tournamentId._id,
+        status: 'APPROVED',
+      });
+      if (approvedCount >= registration.tournamentId.maxHorses) {
+        return res.status(400).json({ message: 'Tournament has reached maximum approved horses' });
+      }
+    }
+
+    registration.status = status;
+    if (status === 'REJECTED') {
+      registration.rejectionReason = rejectionReason || 'No reason provided';
+    }
+    await registration.save();
+
+    return res.status(200).json({
+      registrationId: registration._id,
+      horse: registration.horseId,
+      owner: registration.ownerId,
+      tournament: registration.tournamentId,
+      status: registration.status,
+      rejectionReason: registration.rejectionReason,
+      message: `Registration ${status.toLowerCase()} successfully`,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -385,6 +471,12 @@ exports.updateSeeds = async (req, res) => {
   try {
     const { tournamentId } = req.params;
     const { seeds = [], applyToExistingBracket = false } = req.body;
+// POST /admin/tournaments/:tournamentId/generate-heats
+// Tự động chia các ngựa APPROVED thành các heat (Race) trong tournament
+exports.generateHeats = async (req, res) => {
+  try {
+    const { tournamentId } = req.params;
+    const { horsesPerHeat = 8, distanceMeters = 1200, scheduledAt } = req.body;
 
     const tournament = await Tournament.findById(tournamentId);
     if (!tournament) {
@@ -499,6 +591,86 @@ exports.withdrawHorse = async (req, res) => {
       tournamentId,
       affectedRaces,
       updatedBracket: tournament.bracket,
+    // Cho phép generate heats khi tournament đã đóng đăng ký hoặc đang tiến hành
+    if (!['PUBLISHED', 'REGISTRATION_CLOSED', 'BRACKET_GENERATED', 'ONGOING'].includes(tournament.status)) {
+      return res.status(400).json({
+        message: `Can only generate heats for PUBLISHED, REGISTRATION_CLOSED, BRACKET_GENERATED or ONGOING tournaments. Current: ${tournament.status}`,
+      });
+    }
+
+    // Lấy tất cả các đăng ký đã APPROVED trong tournament
+    const approvedRegs = await TournamentRegistration.find({
+      tournamentId,
+      status: 'APPROVED',
+    }).populate('horseId', 'name');
+
+    if (approvedRegs.length < 2) {
+      return res.status(400).json({
+        message: `Need at least 2 approved horses to generate heats. Current: ${approvedRegs.length}`,
+      });
+    }
+
+    // Xác định thời điểm các heat bắt đầu
+    const baseSchedule = scheduledAt ? new Date(scheduledAt) : new Date(tournament.startDate);
+    if (isNaN(baseSchedule)) {
+      return res.status(400).json({ message: 'Invalid scheduledAt date' });
+    }
+
+    // Chia ngựa thành các nhóm heat
+    const horses = approvedRegs.map((r) => r.horseId);
+    const numHeats = Math.ceil(horses.length / horsesPerHeat);
+    const createdRaces = [];
+
+    for (let i = 0; i < numHeats; i++) {
+      const heatHorses = horses.slice(i * horsesPerHeat, (i + 1) * horsesPerHeat);
+      const heatSchedule = new Date(baseSchedule.getTime() + i * 60 * 60 * 1000); // cách nhau 1 giờ
+
+      // Kiểm tra hạn bất đầu không vượt endDate tournament
+      if (heatSchedule > tournament.endDate) {
+        break;
+      }
+
+      const race = new Race({
+        tournamentId,
+        name: `Heat ${i + 1}`,
+        distance: distanceMeters,
+        scheduledAt: heatSchedule,
+        maxHorses: heatHorses.length,
+        status: 'SCHEDULED',
+        createdBy: req.user._id,
+      });
+      await race.save();
+
+      // Tạo RaceRegistration cho từng ngựa trong heat
+      const raceRegs = heatHorses.map((horse) => ({
+        horseId: horse._id,
+        raceId: race._id,
+        status: 'APPROVED',
+        confirmedByOwner: false,
+      }));
+      await RaceRegistration.insertMany(raceRegs, { ordered: false });
+
+      createdRaces.push({
+        raceId: race._id,
+        name: race.name,
+        scheduledAt: race.scheduledAt,
+        horses: heatHorses.map((h) => ({ id: h._id, name: h.name })),
+      });
+    }
+
+    // Tự động chuyển trạng thái tournament sang BRACKET_GENERATED nếu chưa phải ONGOING
+    if (tournament.status !== 'ONGOING') {
+      tournament.status = 'BRACKET_GENERATED';
+      await tournament.save();
+    }
+
+    return res.status(201).json({
+      message: `Generated ${createdRaces.length} heat(s) successfully`,
+      tournamentId,
+      tournamentStatus: tournament.status,
+      totalHorses: approvedRegs.length,
+      heatsCreated: createdRaces.length,
+      races: createdRaces,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -534,4 +706,3 @@ exports.getAuditLogs = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
