@@ -44,6 +44,10 @@ const tournamentSchema = new mongoose.Schema({
     enum: ['DRAFT', 'PUBLISHED', 'REGISTRATION_CLOSED', 'BRACKET_GENERATED', 'ONGOING', 'COMPLETED', 'CANCELLED'],
     default: 'DRAFT',
   },
+  bracket: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
