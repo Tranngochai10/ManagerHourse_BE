@@ -1,8 +1,7 @@
 const express = require('express');
-const { getTournaments, getTournamentById, getBracket } = require('../controllers/tournamentController');
-
-const { getTournaments, getTournamentById, registerToTournament } = require('../controllers/tournamentController');
+const { getTournaments, getTournamentById, getBracket, registerToTournament } = require('../controllers/tournamentController');
 const { protect } = require('../middleware/authMiddleware');
+
 const router = express.Router();
 
 /**
@@ -23,7 +22,7 @@ const router = express.Router();
  *         name: status
  *         schema:
  *           type: string
- *           enum: [DRAFT, PUBLISHED, ONGOING, COMPLETED, CANCELLED]
+ *           enum: [DRAFT, PUBLISHED, REGISTRATION_CLOSED, BRACKET_GENERATED, ONGOING, COMPLETED, CANCELLED]
  *         description: Filter by tournament status
  *       - in: query
  *         name: page
@@ -38,19 +37,6 @@ const router = express.Router();
  *     responses:
  *       200:
  *         description: Paginated list of tournaments
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 total:
- *                   type: integer
- *                 page:
- *                   type: integer
- *                 limit:
- *                   type: integer
- *                 tournaments:
- *                   type: array
  */
 router.get('/', getTournaments);
 
@@ -81,12 +67,6 @@ router.get('/:tournId', getTournamentById);
  *   get:
  *     summary: Get bracket structure for tournament
  *     tags: [Tournaments]
- * /tournaments/{tournamentId}/register:
- *   post:
- *     summary: Đăng ký ngựa vào tournament (chỉ OWNER)
- *     tags: [Tournaments]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: tournamentId
@@ -100,7 +80,21 @@ router.get('/:tournId', getTournamentById);
  *         description: Tournament not found or bracket not generated
  */
 router.get('/:tournamentId/bracket', getBracket);
- *         description: Tournament ID
+
+/**
+ * @swagger
+ * /tournaments/{tournamentId}/register:
+ *   post:
+ *     summary: Register horse to tournament (OWNER only)
+ *     tags: [Tournaments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: tournamentId
+ *         required: true
+ *         schema:
+ *           type: string
  *     requestBody:
  *       required: true
  *       content:
@@ -112,35 +106,18 @@ router.get('/:tournamentId/bracket', getBracket);
  *             properties:
  *               horseId:
  *                 type: string
- *                 description: ID của ngựa muốn đăng ký
- *                 example: "665f1a2b3c4d5e6f7a8b9c0d"
+ *                 description: Horse ID to register
  *     responses:
  *       201:
- *         description: Đăng ký thành công, chờ admin duyệt
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 registrationId:
- *                   type: string
- *                 tournamentId:
- *                   type: string
- *                 horseId:
- *                   type: string
- *                 status:
- *                   type: string
- *                   example: PENDING
- *                 createdAt:
- *                   type: string
+ *         description: Successfully registered, waiting for admin approval
  *       400:
- *         description: Tournament đóng đăng ký / ngựa chưa APPROVED / đầy slot
+ *         description: Invalid request
  *       403:
- *         description: Không phải OWNER hoặc không sở hữu ngựa này
+ *         description: Forbidden
  *       404:
- *         description: Tournament hoặc Horse không tồn tại
+ *         description: Not found
  *       409:
- *         description: Ngựa đã đăng ký tournament này rồi
+ *         description: Conflict
  */
 router.post('/:tournamentId/register', protect, registerToTournament);
 
