@@ -63,7 +63,7 @@ exports.registerToTournament = async (req, res) => {
     if (!tournament) {
       return res.status(404).json({ message: 'Tournament not found' });
     }
-    if (!['PUBLISHED', 'ONGOING'].includes(tournament.status)) {
+    if (!['PUBLISHED'].includes(tournament.status)) {
       return res.status(400).json({ message: `Tournament is not open for registration. Status: ${tournament.status}` });
     }
 
