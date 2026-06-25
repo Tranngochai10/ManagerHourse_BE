@@ -1,5 +1,5 @@
 const express = require('express');
-const { getTournaments, getTournamentById } = require('../controllers/tournamentController');
+const { getTournaments, getTournamentById, getBracket } = require('../controllers/tournamentController');
 
 const router = express.Router();
 
@@ -72,5 +72,25 @@ router.get('/', getTournaments);
  *         description: Tournament not found
  */
 router.get('/:tournId', getTournamentById);
+
+/**
+ * @swagger
+ * /tournaments/{tournamentId}/bracket:
+ *   get:
+ *     summary: Get bracket structure for tournament
+ *     tags: [Tournaments]
+ *     parameters:
+ *       - in: path
+ *         name: tournamentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Bracket object
+ *       404:
+ *         description: Tournament not found or bracket not generated
+ */
+router.get('/:tournamentId/bracket', getBracket);
 
 module.exports = router;

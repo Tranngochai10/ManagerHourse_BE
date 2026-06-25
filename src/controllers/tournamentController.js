@@ -40,3 +40,20 @@ exports.getTournamentById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// GET /tournaments/:tournamentId/bracket — Public
+exports.getBracket = async (req, res) => {
+  try {
+    const tournament = await Tournament.findById(req.params.tournamentId);
+    if (!tournament) {
+      return res.status(404).json({ message: 'Tournament not found' });
+    }
+    if (!tournament.bracket) {
+      return res.status(404).json({ message: 'Bracket not generated yet' });
+    }
+    res.status(200).json(tournament.bracket);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
