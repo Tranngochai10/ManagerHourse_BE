@@ -2,6 +2,7 @@ const Race = require('../models/Race');
 const RaceRegistration = require('../models/RaceRegistration');
 const Horse = require('../models/Horse');
 const Invitation = require('../models/Invitation');
+const RaceResult = require('../models/RaceResult');
 
 // GET /races — Public (filter by tournamentId)
 exports.getRaces = async (req, res) => {
@@ -45,7 +46,17 @@ exports.getRaceById = async (req, res) => {
     if (!race) {
       return res.status(404).json({ message: 'Race not found' });
     }
-    res.status(200).json(race);
+
+    // Kèm theo kết quả (rankings) nếu đã được confirm bởi trọng tài
+    const raceResult = await RaceResult.findOne({ raceId: req.params.raceId })
+      .populate('rankings.horseId', 'name breed color')
+      .populate('rankings.jockeyId', 'fullName')
+      .populate('confirmedBy', 'fullName email');
+
+    const response = race.toObject();
+    response.result = raceResult || null;
+
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

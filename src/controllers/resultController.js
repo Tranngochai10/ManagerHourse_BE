@@ -1,4 +1,5 @@
 const Result = require("../models/Result");
+const RaceResult = require("../models/RaceResult");
 const Race = require("../models/Race");
 const Horse = require("../models/Horse");
 const Jockey = require("../models/Jockey");
@@ -14,6 +15,25 @@ exports.getResultsByRace = async (req, res) => {
       return res.status(404).json({ message: "Race not found" });
     }
 
+    // Ưu tiên kết quả do trọng tài confirm (RaceResult)
+    const raceResult = await RaceResult.findOne({ raceId })
+      .populate("rankings.horseId", "name breed color")
+      .populate("rankings.jockeyId", "fullName")
+      .populate("confirmedBy", "fullName email");
+
+    if (raceResult) {
+      return res.status(200).json({
+        raceId,
+        raceName: race.name,
+        source: "REFEREE_CONFIRMED",
+        confirmedAt: raceResult.confirmedAt,
+        confirmedBy: raceResult.confirmedBy,
+        notes: raceResult.notes,
+        rankings: raceResult.rankings,
+      });
+    }
+
+    // Fallback: kết quả do admin publish (Result model cũ)
     const results = await Result.find({ raceId })
       .populate("horseId", "name breed color ownerId")
       .populate("jockeyId", "fullName")
@@ -22,12 +42,14 @@ exports.getResultsByRace = async (req, res) => {
     res.status(200).json({
       raceId,
       raceName: race.name,
-      results,
+      source: "ADMIN_PUBLISHED",
+      rankings: results,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
+
 
 // POST /admin/races/:raceId/publish-result — ADMIN: Publish race results
 exports.publishRaceResult = async (req, res) => {
