@@ -25,6 +25,22 @@ const raceRegistrationSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    horseName: {
+      type: String,
+      default: null,
+    },
+    horseBreed: {
+      type: String,
+      default: null,
+    },
+    raceName: {
+      type: String,
+      default: null,
+    },
+    ownerName: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,
