@@ -252,7 +252,7 @@ exports.generateBracket = async (req, res) => {
 
     const registrations = await TournamentRegistration.find({
       tournamentId,
-      status: 'APPROVED',
+      status: { $in: ['APPROVED', 'CONFIRMED'] },
       withdrawn: false,
     }).populate('horseId');
 
@@ -625,10 +625,13 @@ exports.generateHeats = async (req, res) => {
       });
     }
 
-    // Lấy tất cả các đăng ký đã APPROVED trong tournament
-    const approvedRegs = await TournamentRegistration.find({
-      tournamentId,
-      status: 'APPROVED',
+    // Since users register directly into 'Vòng Bảng' race, we find RaceRegistrations
+    const racesInTourn = await Race.find({ tournamentId });
+    const raceIds = racesInTourn.map(r => r._id);
+
+    const approvedRegs = await RaceRegistration.find({
+      raceId: { $in: raceIds },
+      status: { $in: ['APPROVED', 'CONFIRMED'] },
     }).populate('horseId', 'name');
 
     if (approvedRegs.length < 2) {
@@ -637,52 +640,96 @@ exports.generateHeats = async (req, res) => {
       });
     }
 
-    // Xác định thời điểm các heat bắt đầu
     const baseSchedule = scheduledAt ? new Date(scheduledAt) : new Date(tournament.startDate);
     if (isNaN(baseSchedule)) {
       return res.status(400).json({ message: 'Invalid scheduledAt date' });
     }
 
-    // Chia ngựa thành các nhóm heat
-    const horses = approvedRegs.map((r) => r.horseId);
-    const numHeats = Math.ceil(horses.length / horsesPerHeat);
     const createdRaces = [];
+    const { heats } = req.body; // Custom heats array from frontend
 
-    for (let i = 0; i < numHeats; i++) {
-      const heatHorses = horses.slice(i * horsesPerHeat, (i + 1) * horsesPerHeat);
-      const heatSchedule = new Date(baseSchedule.getTime() + i * 60 * 60 * 1000); // cách nhau 1 giờ
+    if (heats && Array.isArray(heats) && heats.length > 0) {
+      // Use custom heats from frontend
+      for (let i = 0; i < heats.length; i++) {
+        const heatData = heats[i];
+        const heatRegs = approvedRegs.filter(r => heatData.regIds.includes(r._id.toString()));
+        if (heatRegs.length === 0) continue;
 
-      // Kiểm tra hạn bất đầu không vượt endDate tournament
-      if (heatSchedule > tournament.endDate) {
-        break;
+        const heatSchedule = new Date(baseSchedule.getTime() + i * 60 * 60 * 1000);
+        if (heatSchedule > tournament.endDate) break;
+
+        const race = new Race({
+          tournamentId,
+          name: heatData.name || `Bảng ${String.fromCharCode(65 + i)}`,
+          distance: distanceMeters,
+          scheduledAt: heatSchedule,
+          maxHorses: heatRegs.length,
+          status: 'SCHEDULED',
+          createdBy: req.user._id,
+        });
+        await race.save();
+
+        // Update existing registrations to point to the new race
+        for (const r of heatRegs) {
+          r.raceId = race._id;
+          await r.save();
+        }
+
+        createdRaces.push({
+          raceId: race._id,
+          name: race.name,
+          scheduledAt: race.scheduledAt,
+          horses: heatRegs.map((r) => ({ id: r.horseId._id, name: r.horseId.name })),
+        });
+      }
+    } else {
+      // Auto generate heats
+      const horses = approvedRegs.map((r) => r.horseId);
+      let numHeats = Math.ceil(horses.length / horsesPerHeat);
+
+      if (numHeats === 1 && horses.length >= 4) {
+        numHeats = 2;
       }
 
-      const race = new Race({
-        tournamentId,
-        name: `Heat ${i + 1}`,
-        distance: distanceMeters,
-        scheduledAt: heatSchedule,
-        maxHorses: heatHorses.length,
-        status: 'SCHEDULED',
-        createdBy: req.user._id,
-      });
-      await race.save();
+      for (let i = 0; i < numHeats; i++) {
+        const heatRegs = approvedRegs.slice(i * horsesPerHeat, (i + 1) * horsesPerHeat);
+        if (heatRegs.length === 0) continue;
 
-      // Tạo RaceRegistration cho từng ngựa trong heat
-      const raceRegs = heatHorses.map((horse) => ({
-        horseId: horse._id,
-        raceId: race._id,
-        status: 'APPROVED',
-        confirmedByOwner: false,
-      }));
-      await RaceRegistration.insertMany(raceRegs, { ordered: false });
+        const heatSchedule = new Date(baseSchedule.getTime() + i * 60 * 60 * 1000);
+        if (heatSchedule > tournament.endDate) break;
 
-      createdRaces.push({
-        raceId: race._id,
-        name: race.name,
-        scheduledAt: race.scheduledAt,
-        horses: heatHorses.map((h) => ({ id: h._id, name: h.name })),
-      });
+        const race = new Race({
+          tournamentId,
+          name: `Bảng ${String.fromCharCode(65 + i)}`,
+          distance: distanceMeters,
+          scheduledAt: heatSchedule,
+          maxHorses: heatRegs.length,
+          status: 'SCHEDULED',
+          createdBy: req.user._id,
+        });
+        await race.save();
+
+        for (const r of heatRegs) {
+          r.raceId = race._id;
+          await r.save();
+        }
+
+        createdRaces.push({
+          raceId: race._id,
+          name: race.name,
+          scheduledAt: race.scheduledAt,
+          horses: heatRegs.map((r) => ({ id: r.horseId._id, name: r.horseId.name })),
+        });
+      }
+    }
+
+    // Remove the old 'Vòng Bảng' race if it is now empty
+    const oldVongBang = racesInTourn.find(r => r.name.toLowerCase().includes('vòng bảng'));
+    if (oldVongBang) {
+      const remainingRegs = await RaceRegistration.countDocuments({ raceId: oldVongBang._id });
+      if (remainingRegs === 0) {
+        await Race.findByIdAndDelete(oldVongBang._id);
+      }
     }
 
     // Tự động chuyển trạng thái tournament sang BRACKET_GENERATED nếu chưa phải ONGOING

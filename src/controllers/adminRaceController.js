@@ -425,3 +425,103 @@ exports.advanceWinner = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// POST /admin/races/:raceId/split-heats
+exports.splitHeats = async (req, res) => {
+  try {
+    const { raceId } = req.params;
+    const { maxHorsesPerHeat } = req.body;
+
+    const sourceRace = await Race.findById(raceId);
+    if (!sourceRace) {
+      return res.status(404).json({ message: 'Source race not found' });
+    }
+
+    if (['COMPLETED', 'CANCELLED'].includes(sourceRace.status)) {
+      return res.status(400).json({ message: 'Cannot split a completed or cancelled race' });
+    }
+
+    // Get all APPROVED/CONFIRMED registrations for this race
+    const registrations = await RaceRegistration.find({
+      raceId: sourceRace._id,
+      status: { $in: ['APPROVED', 'CONFIRMED'] },
+    }).populate('horseId');
+
+    if (registrations.length < 2) {
+      return res.status(400).json({ message: `Not enough approved horses to split (found ${registrations.length})` });
+    }
+
+    const limit = maxHorsesPerHeat || sourceRace.maxHorses || 8;
+    const numHeats = Math.ceil(registrations.length / limit);
+
+    if (numHeats <= 1 && registrations.length <= limit) {
+      // Still allow splitting if they want, but typically we split if it exceeds limit.
+      // But if they explicitly clicked it, we might just rename it or do nothing.
+      // We will proceed to split them evenly anyway to satisfy "chia đều" or just keep them in 1 heat.
+      if (numHeats === 1) {
+         // Just rename the race to "Bảng A" if they really want, but let's just make 1 heat
+      }
+    }
+
+    // Shuffle horses
+    const shuffled = [...registrations].sort(() => Math.random() - 0.5);
+
+    // Calculate horses per heat
+    const horsesPerHeat = Math.ceil(shuffled.length / numHeats);
+
+    const createdRaces = [];
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+    for (let i = 0; i < numHeats; i++) {
+      const heatHorses = shuffled.slice(i * horsesPerHeat, (i + 1) * horsesPerHeat);
+      if (heatHorses.length === 0) continue;
+
+      const heatLetter = letters[i % letters.length];
+      const newRaceName = `${sourceRace.name} - Bảng ${heatLetter}`;
+      
+      const scheduledTime = new Date(sourceRace.scheduledAt);
+      if (!isNaN(scheduledTime)) {
+        scheduledTime.setMinutes(scheduledTime.getMinutes() + (i * 15)); // +15 mins each heat
+      }
+
+      const race = new Race({
+        tournamentId: sourceRace.tournamentId,
+        name: newRaceName,
+        distance: sourceRace.distance,
+        scheduledAt: scheduledTime,
+        maxHorses: limit,
+        prizeFirst: sourceRace.prizeFirst,
+        prizeSecond: sourceRace.prizeSecond,
+        prizeThird: sourceRace.prizeThird,
+        status: 'SCHEDULED',
+        createdBy: req.user._id,
+      });
+      await race.save();
+
+      // Move registrations to new race
+      for (const reg of heatHorses) {
+        reg.raceId = race._id;
+        await reg.save();
+      }
+
+      createdRaces.push({
+        raceId: race._id,
+        name: race.name,
+        horsesAssigned: heatHorses.length,
+      });
+    }
+
+    // Delete the original source race since we split it
+    await Race.deleteOne({ _id: sourceRace._id });
+
+    // Also delete any pending/rejected registrations attached to the old race
+    await RaceRegistration.deleteMany({ raceId: sourceRace._id });
+
+    return res.status(200).json({
+      message: `Successfully split race into ${createdRaces.length} heats`,
+      heats: createdRaces,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
