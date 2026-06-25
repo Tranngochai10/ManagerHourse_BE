@@ -44,6 +44,43 @@ const tournamentSchema = new mongoose.Schema({
     enum: ['DRAFT', 'PUBLISHED', 'REGISTRATION_CLOSED', 'BRACKET_GENERATED', 'ONGOING', 'COMPLETED', 'CANCELLED'],
     default: 'DRAFT',
   },
+  bracket: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null,
+  },
+  minHorses: {
+    type: Number,
+    default: 2,
+  },
+  registrationOpenDate: {
+    type: Date,
+    default: null,
+  },
+  registrationCloseDate: {
+    type: Date,
+    default: null,
+  },
+  pairingMethod: {
+    type: String,
+    enum: ['RANDOM', 'SEEDED'],
+    default: 'RANDOM',
+  },
+  hasThirdPlaceMatch: {
+    type: Boolean,
+    default: false,
+  },
+  registeredCount: {
+    type: Number,
+    default: 0,
+  },
+  currentRound: {
+    type: Number,
+    default: 1,
+  },
+  totalRounds: {
+    type: Number,
+    default: 0,
+  },
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

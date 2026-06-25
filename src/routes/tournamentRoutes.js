@@ -1,4 +1,6 @@
 const express = require('express');
+const { getTournaments, getTournamentById, getBracket } = require('../controllers/tournamentController');
+
 const { getTournaments, getTournamentById, registerToTournament } = require('../controllers/tournamentController');
 const { protect } = require('../middleware/authMiddleware');
 const router = express.Router();
@@ -75,6 +77,10 @@ router.get('/:tournId', getTournamentById);
 
 /**
  * @swagger
+ * /tournaments/{tournamentId}/bracket:
+ *   get:
+ *     summary: Get bracket structure for tournament
+ *     tags: [Tournaments]
  * /tournaments/{tournamentId}/register:
  *   post:
  *     summary: Đăng ký ngựa vào tournament (chỉ OWNER)
@@ -87,6 +93,13 @@ router.get('/:tournId', getTournamentById);
  *         required: true
  *         schema:
  *           type: string
+ *     responses:
+ *       200:
+ *         description: Bracket object
+ *       404:
+ *         description: Tournament not found or bracket not generated
+ */
+router.get('/:tournamentId/bracket', getBracket);
  *         description: Tournament ID
  *     requestBody:
  *       required: true

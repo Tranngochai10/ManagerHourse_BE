@@ -43,8 +43,12 @@ const raceSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['SCHEDULED', 'ONGOING', 'COMPLETED', 'CANCELLED'],
+    enum: ['PENDING', 'SCHEDULED', 'ONGOING', 'RUNNING', 'FINISHED', 'COMPLETED', 'CANCELLED', 'RESULT_CONFIRMED'],
     default: 'SCHEDULED',
+  },
+  confirmedAt: {
+    type: Date,
+    default: null,
   },
   refereeId: {
     type: mongoose.Schema.Types.ObjectId,
