@@ -5,6 +5,7 @@ const RaceRegistration = require('../models/RaceRegistration');
 const Violation = require('../models/Violation');
 const RaceResult = require('../models/RaceResult');
 const RaceReport = require('../models/RaceReport');
+const Invitation = require('../models/Invitation');
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
@@ -56,21 +57,54 @@ exports.getHorsesForRace = async (req, res) => {
     const race = await getAssignedRace(req.params.raceId, req.user._id, res);
     if (!race) return;
 
-    const registrations = await RaceRegistration.find({
-      raceId: req.params.raceId,
-      status: { $in: ['APPROVED', 'CONFIRMED'] },
-    })
-      .populate({
+    const [registrations, invitations] = await Promise.all([
+      RaceRegistration.find({
+        raceId: req.params.raceId,
+        status: { $in: ['APPROVED', 'CONFIRMED'] },
+      }).populate({
         path: 'horseId',
         select: 'name breed age weight color gender origin healthCertUrl status ownerId',
         populate: { path: 'ownerId', select: 'fullName email phone' },
-      });
+      }),
+      Invitation.find({ raceId: req.params.raceId, status: 'ACCEPTED' })
+        .populate({
+          path: 'jockeyId',
+          populate: { path: 'userId', select: 'fullName' }
+        })
+    ]);
 
-    const horses = registrations.map((reg) => ({
-      registrationId: reg._id,
-      registrationStatus: reg.status,
-      horse: reg.horseId,
-    }));
+    const jockeyMap = {};
+    invitations.forEach((inv) => {
+      if (inv.horseId) {
+        let jockeyId = null;
+        let jockeyName = null;
+
+        if (inv.jockeyId) {
+          jockeyId = inv.jockeyId._id;
+          if (inv.jockeyId.userId) {
+            jockeyName = inv.jockeyId.userId.fullName;
+          }
+        }
+
+        jockeyMap[inv.horseId.toString()] = {
+          jockeyId,
+          jockeyName,
+        };
+      }
+    });
+
+    const horses = registrations.map((reg) => {
+      const horseIdStr = reg.horseId ? reg.horseId._id.toString() : '';
+      const jockeyInfo = jockeyMap[horseIdStr] || { jockeyId: null, jockeyName: null };
+      return {
+        registrationId: reg._id,
+        registrationStatus: reg.status,
+        confirmedByOwner: reg.confirmedByOwner,
+        horse: reg.horseId,
+        jockeyId: jockeyInfo.jockeyId,
+        jockeyName: jockeyInfo.jockeyName,
+      };
+    });
 
     res.status(200).json({ raceId: race._id, raceName: race.name, horses });
   } catch (error) {
@@ -372,6 +406,38 @@ exports.getReport = async (req, res) => {
     }
 
     res.status(200).json(report);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// ─── GET /referee/races/:raceId/confirmed-result ──────────────────────────────
+
+/**
+ * @desc  Xem kết quả cuộc đua đã xác nhận
+ * @route GET /referee/races/:raceId/confirmed-result
+ * @access REFEREE, ADMIN
+ */
+exports.getConfirmedResult = async (req, res) => {
+  try {
+    const race = await getAssignedRace(req.params.raceId, req.user._id, res);
+    if (!race) return;
+
+    const raceResult = await RaceResult.findOne({ raceId: req.params.raceId })
+      .populate({
+        path: 'rankings.horseId',
+        select: 'name breed color'
+      })
+      .populate({
+        path: 'rankings.jockeyId',
+        populate: { path: 'userId', select: 'fullName' }
+      });
+
+    if (!raceResult) {
+      return res.status(404).json({ message: 'No confirmed result found for this race' });
+    }
+
+    res.status(200).json(raceResult);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
