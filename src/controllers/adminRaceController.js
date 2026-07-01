@@ -3,7 +3,8 @@ const Tournament = require("../models/Tournament");
 const User = require("../models/User");
 const RaceRegistration = require("../models/RaceRegistration");
 const Horse = require("../models/Horse");
-
+const { balanceHeats } = require("../utils/tournamentAlgo");
+const Schedule = require("../models/Schedule");
 // POST /admin/races
 exports.createRace = async (req, res) => {
   try {
@@ -420,6 +421,132 @@ exports.advanceWinner = async (req, res) => {
       toRace: { id: toRace._id, name: toRace.name },
       assigned,
       skipped,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /admin/races/:raceId/split-heats
+exports.splitHeats = async (req, res) => {
+  try {
+    const { raceId } = req.params;
+    const { maxPerHeat = 10, matchIntervalMinutes = 30 } = req.body;
+
+    const race = await Race.findById(raceId);
+    if (!race) {
+      return res.status(404).json({ message: 'Race not found' });
+    }
+
+    if (race.status !== 'SCHEDULED' && race.status !== 'PENDING') {
+      return res.status(400).json({ message: `Cannot split race with status ${race.status}` });
+    }
+
+    // Get APPROVED/CONFIRMED registrations
+    const registrations = await RaceRegistration.find({
+      raceId,
+      status: { $in: ['APPROVED', 'CONFIRMED'] },
+    }).populate('horseId');
+
+    if (registrations.length <= maxPerHeat) {
+      return res.status(400).json({ message: 'Not enough horses to split into multiple heats based on maxPerHeat' });
+    }
+
+    // Map for balanceHeats
+    const mappedHorses = registrations.map(reg => ({
+      horseId: reg.horseId,
+      ownerId: reg.horseId ? reg.horseId.ownerId : null,
+      seed: null,
+    }));
+
+    const heats = balanceHeats(mappedHorses, maxPerHeat, 'RANDOM');
+    
+    const createdRaces = [];
+    let baseTime = new Date(race.scheduledAt);
+
+    // Cancel original race
+    race.status = 'CANCELLED';
+    await race.save();
+
+    // Cancel old schedule if exists
+    const oldSchedule = await Schedule.findOne({ raceId: race._id });
+    if (oldSchedule) {
+      oldSchedule.status = 'CANCELLED';
+      await oldSchedule.save();
+    }
+    
+    // Reject old registrations
+    await RaceRegistration.updateMany(
+      { raceId },
+      { status: 'REJECTED', rejectionReason: 'Race split into multiple heats' }
+    );
+
+    for (let i = 0; i < heats.length; i++) {
+      const heatHorses = heats[i];
+      const scheduledTime = new Date(baseTime.getTime() + (i * matchIntervalMinutes * 60 * 1000));
+      
+      const newRace = new Race({
+        tournamentId: race.tournamentId,
+        name: `${race.name} - Heat ${i + 1}`,
+        distance: race.distance,
+        scheduledAt: scheduledTime,
+        maxHorses: maxPerHeat,
+        status: 'PENDING',
+        createdBy: req.user._id,
+      });
+      await newRace.save();
+
+      const registeredScheduleHorses = [];
+
+      for (const item of heatHorses) {
+        if (!item.horse.horseId) continue;
+        const reg = new RaceRegistration({
+          horseId: item.horse.horseId._id,
+          raceId: newRace._id,
+          status: 'APPROVED',
+          startingGate: item.startingGate,
+        });
+        await reg.save();
+
+        registeredScheduleHorses.push({
+          horseId: item.horse.horseId._id,
+          ownerId: item.horse.ownerId,
+          status: 'CONFIRMED',
+        });
+      }
+
+      // Tournament for location fallback
+      let location = oldSchedule ? oldSchedule.location : 'Unknown';
+      if (location === 'Unknown' && race.tournamentId) {
+        const Tournament = require('../models/Tournament');
+        const tourn = await Tournament.findById(race.tournamentId);
+        if (tourn) location = tourn.venue;
+      }
+
+      const schedule = new Schedule({
+        raceId: newRace._id,
+        tournamentId: race.tournamentId,
+        raceName: newRace.name,
+        scheduledTime,
+        location: location,
+        distance: race.distance,
+        maxParticipants: maxPerHeat,
+        raceType: 'SPRINT',
+        registeredHorses: registeredScheduleHorses,
+      });
+      await schedule.save();
+
+      createdRaces.push({
+        raceId: newRace._id,
+        name: newRace.name,
+        heatSize: heatHorses.length
+      });
+    }
+
+    res.status(201).json({
+      message: 'Race successfully split into heats',
+      originalRaceId: raceId,
+      createdRaces,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

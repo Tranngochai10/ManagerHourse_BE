@@ -6,7 +6,7 @@ const TournamentAuditLog = require('../models/TournamentAuditLog');
 const Schedule = require('../models/Schedule');
 const RaceRegistration = require('../models/RaceRegistration');
 const Horse = require('../models/Horse');
-
+const { balanceHeats } = require('../utils/tournamentAlgo');
 // POST /admin/tournaments
 exports.createTournament = async (req, res) => {
   try {
@@ -232,8 +232,8 @@ exports.generateBracket = async (req, res) => {
       pairingMethod = 'RANDOM',
       seeds = [],
       matchIntervalMinutes = 30,
-      roundIntervalDays = 1,
       forceContinueIfBelowMin = false,
+      maxPerHeat = 10,
     } = req.body;
 
     const tournament = await Tournament.findById(tournamentId);
@@ -250,6 +250,7 @@ exports.generateBracket = async (req, res) => {
       }
     }
 
+    // Refresh registrations to get updated seeds
     const registrations = await TournamentRegistration.find({
       tournamentId,
       status: 'APPROVED',
@@ -257,147 +258,84 @@ exports.generateBracket = async (req, res) => {
     }).populate('horseId');
 
     const approvedCount = registrations.length;
-    if (approvedCount < 2 && !forceContinueIfBelowMin) {
-      return res.status(409).json({ message: 'Conflict: Approved horse count is below minimum (2)' });
+    if (approvedCount < tournament.minHorses && !forceContinueIfBelowMin) {
+      return res.status(409).json({ message: `Conflict: Approved horse count (${approvedCount}) is below minimum (${tournament.minHorses})` });
     }
 
     if (approvedCount === 0) {
       return res.status(400).json({ message: 'No approved horses to generate bracket' });
     }
 
-    function getSeedingOrder(size) {
-      if (size === 2) return [1, 2];
-      const prev = getSeedingOrder(size / 2);
-      const order = [];
-      for (let i = 0; i < prev.length; i++) {
-        order.push(prev[i]);
-        order.push(size + 1 - prev[i]);
-      }
-      return order;
-    }
-
-    const R = Math.ceil(Math.log2(approvedCount));
-    const P = Math.pow(2, R === 0 ? 1 : R);
-
-    let sortedHorses = [...registrations];
-    if (pairingMethod === 'SEEDED') {
-      sortedHorses.sort((a, b) => {
-        const seedA = a.seed !== null && a.seed !== undefined ? a.seed : Infinity;
-        const seedB = b.seed !== null && b.seed !== undefined ? b.seed : Infinity;
-        return seedA - seedB;
-      });
-    } else {
-      sortedHorses.sort(() => Math.random() - 0.5);
-    }
-
-    const slots = new Array(P).fill(null);
-    for (let i = 0; i < sortedHorses.length; i++) {
-      slots[i] = sortedHorses[i].horseId;
-    }
-
-    const seedingOrder = getSeedingOrder(P);
+    // Call balanceHeats algorithm
+    const heats = balanceHeats(registrations, maxPerHeat, pairingMethod);
+    
     let racesCreatedCount = 0;
-    const rounds = [];
+    const roundMatches = [];
     let baseTime = new Date(tournament.startDate);
 
-    for (let r = 1; r <= R; r++) {
-      const roundMatchesCount = P / Math.pow(2, r);
-      const roundMatches = [];
-      const roundName = `Round ${r}`;
+    for (let i = 0; i < heats.length; i++) {
+      const heatHorses = heats[i]; // Array of { horse, startingGate }
+      const scheduledTime = new Date(baseTime.getTime() + (i * matchIntervalMinutes * 60 * 1000));
+      
+      const race = new Race({
+        tournamentId,
+        name: `${tournament.name} - Round 1 - Heat ${i + 1}`,
+        distance: 1000,
+        scheduledAt: scheduledTime,
+        maxHorses: maxPerHeat,
+        status: 'PENDING',
+        createdBy: req.user._id,
+      });
+      await race.save();
+      racesCreatedCount++;
 
-      for (let m = 1; m <= roundMatchesCount; m++) {
-        let horse1 = null;
-        let horse2 = null;
-        let isBye = false;
-        let raceId = null;
-
-        const scheduledTime = new Date(baseTime.getTime() + (r - 1) * roundIntervalDays * 24 * 60 * 60 * 1000 + (m - 1) * matchIntervalMinutes * 60 * 1000);
-
-        if (r === 1) {
-          const slot1Idx = seedingOrder[2 * (m - 1)] - 1;
-          const slot2Idx = seedingOrder[2 * (m - 1) + 1] - 1;
-          horse1 = slots[slot1Idx];
-          horse2 = slots[slot2Idx];
-
-          if (horse1 && !horse2) {
-            isBye = true;
-          } else if (!horse1 && horse2) {
-            horse1 = horse2;
-            horse2 = null;
-            isBye = true;
-          } else if (!horse1 && !horse2) {
-            isBye = true;
-          }
-        } else {
-          // Placeholder for subsequent rounds
-          isBye = false;
-        }
-
-        if (!isBye && (horse1 || horse2)) {
-          const race = new Race({
-            tournamentId,
-            name: `${tournament.name} - Round ${r} - Match ${m}`,
-            distance: 1000,
-            scheduledAt: scheduledTime,
-            maxHorses: 2,
-            createdBy: req.user._id,
-          });
-          await race.save();
-          raceId = race._id;
-          racesCreatedCount++;
-
-          const horseIds = [horse1, horse2].filter(h => h !== null);
-          for (const horse of horseIds) {
-            const reg = new RaceRegistration({
-              horseId: horse._id,
-              raceId: race._id,
-              status: 'APPROVED',
-            });
-            await reg.save();
-          }
-
-          const registeredHorses = [];
-          for (const horse of horseIds) {
-            registeredHorses.push({
-              horseId: horse._id,
-              ownerId: horse.ownerId,
-              status: 'CONFIRMED',
-            });
-          }
-          const schedule = new Schedule({
-            raceId: race._id,
-            tournamentId,
-            raceName: race.name,
-            scheduledTime,
-            location: tournament.venue,
-            distance: 1000,
-            maxParticipants: 2,
-            raceType: 'SPRINT',
-            registeredHorses,
-          });
-          await schedule.save();
-        }
-
-        roundMatches.push({
-          matchNumber: m,
-          raceId,
-          horse1Id: horse1 ? horse1._id : null,
-          horse2Id: horse2 ? horse2._id : null,
-          isBye,
-          scheduledAt: scheduledTime.toISOString(),
-          bracketPosition: `${r}-${m}`,
+      // Create RaceRegistration and assign startingGate
+      for (const item of heatHorses) {
+        const reg = new RaceRegistration({
+          horseId: item.horse.horseId._id,
+          raceId: race._id,
+          status: 'APPROVED',
+          startingGate: item.startingGate,
         });
+        await reg.save();
       }
-      rounds.push({
-        roundNumber: r,
-        roundName,
-        matches: roundMatches,
+
+      const registeredScheduleHorses = heatHorses.map(item => ({
+        horseId: item.horse.horseId._id,
+        ownerId: item.horse.ownerId,
+        status: 'CONFIRMED', // Assuming SCHEDULE follows CONFIRMED logic
+      }));
+
+      const schedule = new Schedule({
+        raceId: race._id,
+        tournamentId,
+        raceName: race.name,
+        scheduledTime,
+        location: tournament.venue,
+        distance: 1000,
+        maxParticipants: maxPerHeat,
+        raceType: 'SPRINT',
+        registeredHorses: registeredScheduleHorses,
+      });
+      await schedule.save();
+
+      roundMatches.push({
+        matchNumber: i + 1,
+        raceId: race._id,
+        isBye: false,
+        scheduledAt: scheduledTime.toISOString(),
+        bracketPosition: `1-${i + 1}`,
+        heatSize: heatHorses.length
       });
     }
 
     const bracket = {
       tournamentId,
-      rounds,
+      rounds: [{
+        roundNumber: 1,
+        roundName: 'Round 1',
+        matches: roundMatches
+      }],
     };
 
     tournament.bracket = bracket;
@@ -409,7 +347,7 @@ exports.generateBracket = async (req, res) => {
       action: 'GENERATE_BRACKET',
       performedBy: req.user._id,
       performedByRole: req.user.role,
-      details: { pairingMethod, racesCreated: racesCreatedCount, approvedCount },
+      details: { pairingMethod, maxPerHeat, racesCreated: racesCreatedCount, approvedCount },
       severity: 'IMPORTANT',
     });
     await auditLog.save();

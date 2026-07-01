@@ -21,6 +21,10 @@ const raceRegistrationSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    startingGate: {
+      type: Number,
+      default: null,
+    },
     rejectionReason: {
       type: String,
       default: null,
