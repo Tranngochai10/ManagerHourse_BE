@@ -3,6 +3,8 @@ const Invitation = require("../models/Invitation");
 const RaceRegistration = require("../models/RaceRegistration");
 const Race = require("../models/Race");
 const Horse = require("../models/Horse");
+const Result = require("../models/Result");
+const RaceResult = require("../models/RaceResult");
 
 // GET /jockeys/me - Xem profile Jockey của bản thân
 exports.getMyProfile = async (req, res) => {
@@ -364,6 +366,100 @@ exports.adminGetJockeys = async (req, res) => {
         limit: parseInt(limit),
         pages: Math.ceil(total / limit),
       },
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// HELPER: Cập nhật thống kê Jockey (wins, races, winRate)
+exports.updateJockeyStats = async (jockeyId) => {
+  try {
+    const results = await Result.find({ jockeyId });
+    const raceResults = await RaceResult.find({ "rankings.jockeyId": jockeyId });
+
+    let races = results.length + raceResults.length;
+    let wins = results.filter((r) => r.position === 1).length;
+
+    raceResults.forEach((rr) => {
+      const rank = rr.rankings.find(
+        (rk) => rk.jockeyId.toString() === jockeyId.toString()
+      );
+      if (rank && rank.position === 1) {
+        wins++;
+      }
+    });
+
+    const winRate = races > 0 ? (wins / races) * 100 : 0;
+    
+    await Jockey.findByIdAndUpdate(jockeyId, {
+      wins,
+      races,
+      winRate: Math.round(winRate * 100) / 100, // round to 2 decimal places
+    });
+  } catch (error) {
+    console.error("Error updating jockey stats:", error);
+  }
+};
+
+// GET /jockeys/:jockeyId/history - Xem lịch sử thi đấu của Jockey
+exports.getJockeyHistory = async (req, res) => {
+  try {
+    const { jockeyId } = req.params;
+
+    const jockey = await Jockey.findById(jockeyId);
+    if (!jockey) {
+      return res.status(404).json({ message: "Jockey not found" });
+    }
+
+    const results = await Result.find({ jockeyId })
+      .populate("raceId", "name date status")
+      .populate("horseId", "name breed")
+      .sort({ createdAt: -1 });
+
+    const raceResults = await RaceResult.find({ "rankings.jockeyId": jockeyId })
+      .populate("raceId", "name date status")
+      .sort({ createdAt: -1 });
+
+    // Format kết quả chung
+    const history = [];
+
+    results.forEach((r) => {
+      history.push({
+        source: "Result",
+        resultId: r._id,
+        race: r.raceId,
+        horse: r.horseId,
+        position: r.position,
+        finishTime: r.finishTime,
+        status: r.status,
+        date: r.createdAt,
+      });
+    });
+
+    raceResults.forEach((rr) => {
+      const rank = rr.rankings.find(
+        (rk) => rk.jockeyId.toString() === jockeyId.toString()
+      );
+      history.push({
+        source: "RaceResult",
+        resultId: rr._id,
+        race: rr.raceId,
+        horseId: rank.horseId, // You might want to populate this if needed
+        position: rank.position,
+        finishTime: rank.finishTime,
+        status: "FINISHED",
+        date: rr.createdAt,
+      });
+    });
+
+    // Sắp xếp theo ngày mới nhất
+    history.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    res.json({
+      jockeyId: jockey._id,
+      totalRaces: history.length,
+      history,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

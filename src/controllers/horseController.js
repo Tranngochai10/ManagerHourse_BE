@@ -1,5 +1,5 @@
 const Horse = require('../models/Horse');
-const RaceRegistration = require('../models/RaceRegistration');
+const TournamentRegistration = require('../models/TournamentRegistration');
 
 exports.createHorse = async (req, res) => {
   try {
@@ -99,10 +99,10 @@ exports.deleteHorse = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to delete this horse' });
     }
 
-    // Check if horse has any race registrations
-    const registrations = await RaceRegistration.find({ horseId: horse._id });
+    // Check if horse has any tournament registrations
+    const registrations = await TournamentRegistration.find({ horseId: horse._id });
     if (registrations.length > 0) {
-      return res.status(400).json({ message: 'Cannot delete horse that has been registered for a race' });
+      return res.status(400).json({ message: 'Cannot delete horse that has been registered for a tournament' });
     }
 
     await Horse.deleteOne({ _id: horse._id });
@@ -112,9 +112,9 @@ exports.deleteHorse = async (req, res) => {
   }
 };
 
-exports.registerHorseForRace = async (req, res) => {
+exports.registerHorseForTournament = async (req, res) => {
   try {
-    const { raceId } = req.body;
+    const { tournamentId } = req.body;
     const { horseId } = req.params;
 
     const horse = await Horse.findById(horseId);
@@ -126,16 +126,17 @@ exports.registerHorseForRace = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to register this horse' });
     }
 
-    // Check if already registered for this race
-    const existingRegistration = await RaceRegistration.findOne({ horseId, raceId });
+    // Check if already registered for this tournament
+    const existingRegistration = await TournamentRegistration.findOne({ horseId, tournamentId });
     if (existingRegistration) {
       return res.status(409).json({ message: 'HORSE_ALREADY_REGISTERED' });
     }
 
-    const registration = new RaceRegistration({
+    const registration = new TournamentRegistration({
       horseId,
-      raceId,
-      status: 'PENDING_APPROVAL'
+      tournamentId,
+      ownerId: req.user._id,
+      status: 'PENDING'
     });
 
     await registration.save();
@@ -143,7 +144,7 @@ exports.registerHorseForRace = async (req, res) => {
     res.status(201).json({
       registrationId: registration._id,
       horseId: registration.horseId,
-      raceId: registration.raceId,
+      tournamentId: registration.tournamentId,
       status: registration.status
     });
   } catch (error) {

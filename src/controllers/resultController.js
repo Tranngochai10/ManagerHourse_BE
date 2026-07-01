@@ -1,5 +1,6 @@
 const Result = require("../models/Result");
 const RaceResult = require("../models/RaceResult");
+const { updateJockeyStats } = require("./jockeyController");
 const Race = require("../models/Race");
 const Horse = require("../models/Horse");
 const Jockey = require("../models/Jockey");
@@ -108,8 +109,14 @@ exports.publishRaceResult = async (req, res) => {
 
     // Populate results before sending
     const populatedResults = await Result.find({ raceId })
-      .populate("horseId", "name")
-      .populate("jockeyId", "fullName");
+      .populate("horseId", "name breed")
+      .populate("jockeyId", "fullName experience winRate");
+
+    // Update Jockey Stats
+    const uniqueJockeyIds = [...new Set(results.map(r => r.jockeyId))];
+    for (const jId of uniqueJockeyIds) {
+      await updateJockeyStats(jId);
+    }
 
     res.status(201).json({
       message: "Race results published successfully",
