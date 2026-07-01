@@ -6,7 +6,7 @@ const {
   getHorseById,
   updateHorse,
   deleteHorse,
-  registerHorseForRace,
+  registerHorseForTournament,
 } = require("../controllers/horseController");
 const {
   sendInvitation,
@@ -171,15 +171,15 @@ router.put("/:horseId", authorize("OWNER"), updateHorse);
  *       200:
  *         description: Deleted successfully
  *       400:
- *         description: Cannot delete horse registered for race
+ *         description: Cannot delete horse registered for tournament
  */
 router.delete("/:horseId", authorize("OWNER"), deleteHorse);
 
 /**
  * @swagger
- * /horses/{horseId}/register-race:
+ * /horses/{horseId}/register-tournament:
  *   post:
- *     summary: Register a horse for a race
+ *     summary: Register a horse for a tournament
  *     tags: [Horses]
  *     security:
  *       - bearerAuth: []
@@ -196,9 +196,9 @@ router.delete("/:horseId", authorize("OWNER"), deleteHorse);
  *           schema:
  *             type: object
  *             required:
- *               - raceId
+ *               - tournamentId
  *             properties:
- *               raceId:
+ *               tournamentId:
  *                 type: string
  *     responses:
  *       201:
@@ -207,9 +207,9 @@ router.delete("/:horseId", authorize("OWNER"), deleteHorse);
  *         description: Already registered
  */
 router.post(
-  "/:horseId/register-race",
+  "/:horseId/register-tournament",
   authorize("OWNER"),
-  registerHorseForRace,
+  registerHorseForTournament,
 );
 
 /**

@@ -6,6 +6,7 @@ const Violation = require('../models/Violation');
 const RaceResult = require('../models/RaceResult');
 const RaceReport = require('../models/RaceReport');
 const Invitation = require('../models/Invitation');
+const { updateJockeyStats } = require('./jockeyController');
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
@@ -296,21 +297,29 @@ exports.confirmResult = async (req, res) => {
     }
 
     // Upsert result (allow re-confirmation)
+    // Dùng $set rõ ràng để tránh lỗi runValidators với required fields khi update
     const raceResult = await RaceResult.findOneAndUpdate(
       { raceId: req.params.raceId },
       {
-        raceId: req.params.raceId,
-        rankings,
-        notes: notes || '',
-        confirmedBy: req.user._id,
-        confirmedAt: new Date(),
+        $set: {
+          raceId: req.params.raceId,
+          rankings,
+          notes: notes || '',
+          confirmedBy: req.user._id,
+          confirmedAt: new Date(),
+        },
       },
-      { upsert: true, new: true, runValidators: true }
+      { upsert: true, new: true, runValidators: false }
     );
 
-    // Update race status to COMPLETED + mark result confirmed
-    race.status = 'COMPLETED';
-    await race.save();
+    // Update race status to COMPLETED
+    await Race.findByIdAndUpdate(req.params.raceId, { $set: { status: 'COMPLETED' } });
+
+    // Update Jockey Stats
+    const uniqueJockeyIds = [...new Set(rankings.map(r => r.jockeyId))];
+    for (const jId of uniqueJockeyIds) {
+      await updateJockeyStats(jId);
+    }
 
     res.status(200).json({
       raceId: race._id,

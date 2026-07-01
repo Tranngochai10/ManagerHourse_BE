@@ -209,4 +209,26 @@ router.get("/:jockeyId", protect, jockeyController.getJockeyById);
  */
 router.get("/", protect, authorize("OWNER"), jockeyController.listJockeys);
 
+/**
+ * @swagger
+ * /jockeys/{jockeyId}/history:
+ *   get:
+ *     summary: Get jockey race history
+ *     tags: [Jockeys]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: jockeyId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Jockey race history
+ *       404:
+ *         description: Jockey not found
+ */
+router.get("/:jockeyId/history", protect, jockeyController.getJockeyHistory);
+
 module.exports = router;

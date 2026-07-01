@@ -72,8 +72,9 @@ app.use("/admin/races", adminRaceRoutes);
 
 app.use("/referee", refereeRoutes);
 
-// Result & Ranking routes
-app.use("/results", resultRoutes);
+// Result & Ranking routes — resultRoutes đã khai báo prefix đầy đủ bên trong
+// (e.g. "/races/:raceId", "/tournaments/:tournId/leaderboard")
+app.use("/", resultRoutes);
 
 // Prediction & Betting routes
 app.use("/", predictionRoutes);
