@@ -5,6 +5,7 @@ const RaceRegistration = require('../models/RaceRegistration');
 const Violation = require('../models/Violation');
 const RaceResult = require('../models/RaceResult');
 const RaceReport = require('../models/RaceReport');
+const { updateJockeyStats } = require('./jockeyController');
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
@@ -279,6 +280,12 @@ exports.confirmResult = async (req, res) => {
 
     // Update race status to COMPLETED
     await Race.findByIdAndUpdate(req.params.raceId, { $set: { status: 'COMPLETED' } });
+
+    // Update Jockey Stats
+    const uniqueJockeyIds = [...new Set(rankings.map(r => r.jockeyId))];
+    for (const jId of uniqueJockeyIds) {
+      await updateJockeyStats(jId);
+    }
 
     res.status(200).json({
       raceId: race._id,
