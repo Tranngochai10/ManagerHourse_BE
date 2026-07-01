@@ -9,6 +9,7 @@ const {
   confirmResult,
   createReport,
   getReport,
+  getConfirmedResult,
 } = require('../controllers/refereeController');
 
 const router = express.Router();
@@ -378,6 +379,7 @@ router.patch('/violations/:vId/resolve', authorize('REFEREE'), resolveViolation)
  *         description: OPEN_VIOLATIONS_EXIST
  */
 router.post('/races/:raceId/confirm-result', authorize('REFEREE'), confirmResult);
+router.get('/races/:raceId/confirmed-result', authorize('REFEREE'), getConfirmedResult);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /referee/races/:raceId/report

@@ -1,10 +1,4 @@
-const Mux = require('@mux/mux-node');
 const Race = require('../models/Race');
-
-const muxClient = new Mux({
-  tokenId: process.env.MUX_TOKEN_ID,
-  tokenSecret: process.env.MUX_TOKEN_SECRET,
-});
 
 // POST /admin/races/:raceId/stream/start — ADMIN
 exports.startStream = async (req, res) => {
@@ -17,50 +11,35 @@ exports.startStream = async (req, res) => {
     }
 
     if (race.isLive) {
-      return res.status(400).json({ message: 'Stream has already started' });
+      return res.status(400).json({ message: 'Stream/Race has already started' });
     }
 
-    // Create live stream on Mux
-    const liveStream = await muxClient.video.liveStreams.create({
-      playback_policy: ['public'],
-      new_asset_settings: { playback_policy: ['public'] },
-    });
-
-    const playbackId = liveStream.playback_ids[0].id;
-    const streamKey = liveStream.stream_key;
+    // Mock values instead of calling Mux API
+    const playbackId = 'mock_playback_' + raceId;
+    const streamKey = 'mock_key_' + raceId;
 
     // Update Race model
     race.streamKey = streamKey;
     race.playbackId = playbackId;
-    race.liveStreamId = liveStream.id;
+    race.liveStreamId = 'mock_live_id_' + raceId;
     race.isLive = true;
     race.status = 'ONGOING';
     await race.save();
 
     res.status(200).json({
-      message: 'Stream started successfully',
+      message: 'Simulated race started successfully',
       raceId: race._id,
       streamKey,
       playbackId,
       isLive: race.isLive,
       status: race.status,
       rtmpIngestUrl: 'rtmps://global-live.mux.com/app',
-      streamUrl: `https://stream.mux.com/${playbackId}.m3u8`,
+      streamUrl: 'simulated',
     });
   } catch (error) {
-    const statusCode = error.status || error.statusCode || 500;
-    let errorDetail = error.message;
-    try {
-      const jsonStart = error.message.indexOf('{');
-      if (jsonStart !== -1) {
-        errorDetail = JSON.parse(error.message.substring(jsonStart));
-      }
-    } catch (e) {
-      // Keep original message if parsing fails
-    }
-    res.status(statusCode).json({
-      message: 'Mux API Error',
-      error: errorDetail
+    res.status(500).json({
+      message: 'Failed to start simulation',
+      error: error.message
     });
   }
 };
@@ -76,16 +55,7 @@ exports.stopStream = async (req, res) => {
     }
 
     if (!race.isLive) {
-      return res.status(400).json({ message: 'Stream is not active' });
-    }
-
-    // Complete the live stream on Mux if we have a liveStreamId
-    if (race.liveStreamId) {
-      try {
-        await muxClient.video.liveStreams.complete(race.liveStreamId);
-      } catch (muxError) {
-        console.error('Failed to complete live stream on Mux:', muxError.message);
-      }
+      return res.status(400).json({ message: 'Stream/Race is not active' });
     }
 
     // Update database status
@@ -94,25 +64,15 @@ exports.stopStream = async (req, res) => {
     await race.save();
 
     res.status(200).json({
-      message: 'Stream stopped successfully',
+      message: 'Simulated race stopped successfully',
       raceId: race._id,
       isLive: race.isLive,
       status: race.status,
     });
   } catch (error) {
-    const statusCode = error.status || error.statusCode || 500;
-    let errorDetail = error.message;
-    try {
-      const jsonStart = error.message.indexOf('{');
-      if (jsonStart !== -1) {
-        errorDetail = JSON.parse(error.message.substring(jsonStart));
-      }
-    } catch (e) {
-      // Keep original message
-    }
-    res.status(statusCode).json({
-      message: 'Mux API Error',
-      error: errorDetail
+    res.status(500).json({
+      message: 'Failed to stop simulation',
+      error: error.message
     });
   }
 };
@@ -127,30 +87,20 @@ exports.getStream = async (req, res) => {
       return res.status(404).json({ message: 'Race not found' });
     }
 
-    if (!race.isLive || !race.playbackId) {
-      return res.status(400).json({ message: 'Stream has not started yet or has ended' });
+    if (!race.isLive) {
+      return res.status(400).json({ message: 'Race has not started yet or has ended' });
     }
 
     res.status(200).json({
       raceId: race._id,
-      playbackId: race.playbackId,
-      streamUrl: `https://stream.mux.com/${race.playbackId}.m3u8`,
+      playbackId: race.playbackId || 'simulated',
+      streamUrl: 'simulated',
       isLive: race.isLive,
     });
   } catch (error) {
-    const statusCode = error.status || error.statusCode || 500;
-    let errorDetail = error.message;
-    try {
-      const jsonStart = error.message.indexOf('{');
-      if (jsonStart !== -1) {
-        errorDetail = JSON.parse(error.message.substring(jsonStart));
-      }
-    } catch (e) {
-      // Keep original message
-    }
-    res.status(statusCode).json({
-      message: 'Mux API Error',
-      error: errorDetail
+    res.status(500).json({
+      message: 'Failed to retrieve simulation state',
+      error: error.message
     });
   }
 };
