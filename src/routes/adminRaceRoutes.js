@@ -9,6 +9,7 @@ const {
   rejectRaceRegistration,
   assignHorse,
   advanceWinner,
+  splitHeats,
 } = require("../controllers/adminRaceController");
 
 const router = express.Router();
@@ -465,5 +466,41 @@ router.post("/:raceId/assign-horse", assignHorse);
  *         description: Race không tồn tại
  */
 router.post("/advance-winner", advanceWinner);
+
+/**
+ * @swagger
+ * /admin/races/{raceId}/split-heats:
+ *   post:
+ *     summary: Split an overcrowded race into multiple heats
+ *     tags: [Admin - Races]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: raceId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               maxPerHeat:
+ *                 type: integer
+ *                 default: 10
+ *               matchIntervalMinutes:
+ *                 type: integer
+ *                 default: 30
+ *     responses:
+ *       201:
+ *         description: Race successfully split into heats
+ *       400:
+ *         description: Not enough horses or invalid status
+ *       404:
+ *         description: Race not found
+ */
+router.post("/:raceId/split-heats", splitHeats);
 
 module.exports = router;

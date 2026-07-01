@@ -118,6 +118,12 @@ exports.publishRaceResult = async (req, res) => {
       await updateJockeyStats(jId);
     }
 
+    // Trigger Auto-Advance check asynchronously if race belongs to a tournament
+    if (race.tournamentId) {
+      const { checkAndAdvanceRound } = require('../utils/autoAdvance');
+      checkAndAdvanceRound(race.tournamentId, race._id).catch(err => console.error("[AutoAdvance] Error:", err));
+    }
+
     res.status(201).json({
       message: "Race results published successfully",
       raceId,
