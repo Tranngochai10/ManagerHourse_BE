@@ -12,6 +12,7 @@ const {
 } = require("../controllers/adminRaceController");
 
 const router = express.Router();
+const { publishRaceResult } = require("../controllers/resultController");
 
 // All admin race routes require authentication + ADMIN role
 router.use(protect, authorize("ADMIN"));
@@ -465,5 +466,6 @@ router.post("/:raceId/assign-horse", assignHorse);
  *         description: Race không tồn tại
  */
 router.post("/advance-winner", advanceWinner);
+router.post("/:raceId/publish-result", publishRaceResult);
 
 module.exports = router;
