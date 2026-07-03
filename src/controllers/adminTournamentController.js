@@ -671,3 +671,129 @@ exports.getAuditLogs = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// GET /admin/tournaments/registrations
+exports.getTournamentRegistrationsAll = async (req, res) => {
+  try {
+    const { tournamentId, status } = req.query;
+
+    const filter = {};
+    if (tournamentId) filter.tournamentId = tournamentId;
+    if (status) filter.status = status;
+
+    const registrations = await TournamentRegistration.find(filter)
+      .populate({
+        path: 'horseId',
+        select: 'name breed age weight color gender status',
+        populate: { path: 'ownerId', select: 'fullName email phone' },
+      })
+      .populate('ownerId', 'fullName email phone')
+      .populate('tournamentId', 'name status')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      total: registrations.length,
+      registrations: registrations.map((r) => ({
+        registrationId: r._id,
+        tournament: r.tournamentId ? {
+          id: r.tournamentId._id,
+          name: r.tournamentId.name,
+          status: r.tournamentId.status,
+        } : null,
+        horse: r.horseId,
+        owner: r.ownerId,
+        status: r.status,
+        rejectionReason: r.rejectionReason,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// PATCH /admin/tournaments/registrations/:registrationId/approve
+exports.approveTournamentRegistration = async (req, res) => {
+  try {
+    const { registrationId } = req.params;
+
+    const registration = await TournamentRegistration.findById(registrationId)
+      .populate('horseId', 'name breed')
+      .populate('ownerId', 'fullName email')
+      .populate('tournamentId', 'name maxHorses');
+
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    if (registration.status !== 'PENDING') {
+      return res.status(400).json({
+        message: `Cannot approve registration with status: ${registration.status}`,
+      });
+    }
+
+    // Check max approved horses
+    const approvedCount = await TournamentRegistration.countDocuments({
+      tournamentId: registration.tournamentId._id,
+      status: 'APPROVED',
+    });
+    if (approvedCount >= registration.tournamentId.maxHorses) {
+      return res.status(400).json({ message: 'Tournament has reached maximum approved horses' });
+    }
+
+    registration.status = 'APPROVED';
+    await registration.save();
+
+    return res.status(200).json({
+      registrationId: registration._id,
+      horse: registration.horseId,
+      owner: registration.ownerId,
+      tournament: registration.tournamentId,
+      status: registration.status,
+      message: 'Registration approved successfully',
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// PATCH /admin/tournaments/registrations/:registrationId/reject
+exports.rejectTournamentRegistration = async (req, res) => {
+  try {
+    const { registrationId } = req.params;
+    const { reason } = req.body;
+
+    const registration = await TournamentRegistration.findById(registrationId)
+      .populate('horseId', 'name breed')
+      .populate('ownerId', 'fullName email')
+      .populate('tournamentId', 'name');
+
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    if (registration.status !== 'PENDING') {
+      return res.status(400).json({
+        message: `Cannot reject registration with status: ${registration.status}`,
+      });
+    }
+
+    registration.status = 'REJECTED';
+    registration.rejectionReason = reason || 'No reason provided';
+    await registration.save();
+
+    return res.status(200).json({
+      registrationId: registration._id,
+      horse: registration.horseId,
+      owner: registration.ownerId,
+      tournament: registration.tournamentId,
+      status: registration.status,
+      rejectionReason: registration.rejectionReason,
+      message: 'Registration rejected successfully',
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+

@@ -195,7 +195,7 @@ router.post("/:raceId/assign-referee", assignReferee);
  * @swagger
  * /admin/races/registrations:
  *   get:
- *     summary: Get all race registrations with optional filtering
+ *     summary: Get all tournament registrations (queries TournamentRegistration, with raceId fallback)
  *     tags: [Admin - Races]
  *     security:
  *       - bearerAuth: []
@@ -205,17 +205,17 @@ router.post("/:raceId/assign-referee", assignReferee);
  *         required: false
  *         schema:
  *           type: string
- *         description: Filter by race ID
+ *         description: Filter by race ID (resolves to tournament ID)
  *       - in: query
  *         name: status
  *         required: false
  *         schema:
  *           type: string
- *           enum: [PENDING_APPROVAL, APPROVED, REJECTED, CONFIRMED]
+ *           enum: [PENDING, APPROVED, REJECTED]
  *         description: Filter by registration status
  *     responses:
  *       200:
- *         description: List of race registrations
+ *         description: List of tournament registrations
  *         content:
  *           application/json:
  *             schema:
@@ -240,7 +240,7 @@ router.post("/:raceId/assign-referee", assignReferee);
  *                         type: string
  *                       status:
  *                         type: string
- *                         example: PENDING_APPROVAL
+ *                         example: PENDING
  *                       createdAt:
  *                         type: string
  *                         format: date-time
@@ -253,7 +253,7 @@ router.get("/registrations", getRaceRegistrations);
  * @swagger
  * /admin/races/registrations/{regId}/approve:
  *   patch:
- *     summary: Approve a pending race registration
+ *     summary: Approve a pending tournament registration (via races path)
  *     tags: [Admin - Races]
  *     security:
  *       - bearerAuth: []
@@ -288,7 +288,7 @@ router.get("/registrations", getRaceRegistrations);
  *                 message:
  *                   type: string
  *       400:
- *         description: Registration not in PENDING_APPROVAL status
+ *         description: Registration not in PENDING status
  *       404:
  *         description: Registration not found
  */
@@ -298,7 +298,7 @@ router.patch("/registrations/:regId/approve", approveRaceRegistration);
  * @swagger
  * /admin/races/registrations/{regId}/reject:
  *   patch:
- *     summary: Reject a pending race registration
+ *     summary: Reject a pending tournament registration (via races path)
  *     tags: [Admin - Races]
  *     security:
  *       - bearerAuth: []
@@ -345,7 +345,7 @@ router.patch("/registrations/:regId/approve", approveRaceRegistration);
  *                 message:
  *                   type: string
  *       400:
- *         description: Registration not in PENDING_APPROVAL status
+ *         description: Registration not in PENDING status
  *       404:
  *         description: Registration not found
  */
