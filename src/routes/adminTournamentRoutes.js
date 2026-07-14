@@ -12,6 +12,9 @@ const {
   getTournamentRegistrations,
   updateTournamentRegistration,
   generateHeats,
+  getTournamentRegistrationsAll,
+  approveTournamentRegistration,
+  rejectTournamentRegistration,
 } = require('../controllers/adminTournamentController');
 
 const router = express.Router();
@@ -455,5 +458,93 @@ router.patch('/registrations/:registrationId', updateTournamentRegistration);
  *         description: Tournament not found
  */
 router.post('/:tournamentId/generate-heats', generateHeats);
+
+/**
+ * @swagger
+ * /admin/tournaments/registrations:
+ *   get:
+ *     summary: Lấy toàn bộ danh sách đăng ký giải đấu (admin)
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: tournamentId
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Lọc theo tournament ID
+ *       - in: query
+ *         name: status
+ *         required: false
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, APPROVED, REJECTED]
+ *         description: Lọc theo trạng thái đăng ký
+ *     responses:
+ *       200:
+ *         description: Danh sách đăng ký giải đấu
+ *       500:
+ *         description: Lỗi máy chủ
+ */
+router.get('/registrations', getTournamentRegistrationsAll);
+
+/**
+ * @swagger
+ * /admin/tournaments/registrations/{registrationId}/approve:
+ *   patch:
+ *     summary: Duyệt đăng ký tournament của ngựa
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: registrationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Duyệt thành công
+ *       400:
+ *         description: Đăng ký không ở trạng thái PENDING hoặc giải đấu đã đầy
+ *       404:
+ *         description: Không tìm thấy đăng ký
+ */
+router.patch('/registrations/:registrationId/approve', approveTournamentRegistration);
+
+/**
+ * @swagger
+ * /admin/tournaments/registrations/{registrationId}/reject:
+ *   patch:
+ *     summary: Từ chối đăng ký tournament của ngựa
+ *     tags: [Admin - Tournaments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: registrationId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 example: "Ngựa không đạt tiêu chuẩn cân nặng"
+ *     responses:
+ *       200:
+ *         description: Từ chối thành công
+ *       400:
+ *         description: Đăng ký không ở trạng thái PENDING
+ *       404:
+ *         description: Không tìm thấy đăng ký
+ */
+router.patch('/registrations/:registrationId/reject', rejectTournamentRegistration);
 
 module.exports = router;
