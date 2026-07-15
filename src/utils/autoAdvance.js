@@ -5,6 +5,7 @@ const Result = require('../models/Result');
 const RaceRegistration = require('../models/RaceRegistration');
 const Schedule = require('../models/Schedule');
 const { balanceHeats, fastestLoser } = require('./tournamentAlgo');
+const ProgressionRule = require('../models/ProgressionRule');
 
 /**
  * Check if the current round is fully completed, and if so, 
@@ -57,8 +58,9 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
     // --- Proceed to Auto Advance ---
     const nextRoundNumber = currentRound.roundNumber + 1;
     
-    // Check if next round already generated (just in case)
-    if (rounds.some(r => r.roundNumber === nextRoundNumber)) {
+    // Check if next round already populated (not placeholder)
+    const nextRound = rounds.find(r => r.roundNumber === nextRoundNumber);
+    if (nextRound && nextRound.matches && nextRound.matches.some(m => m.horse1Id !== null)) {
       return; 
     }
 
@@ -70,18 +72,29 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
     // Determine max per heat from the first race of current round
     const maxPerHeat = races[0].maxHorses || 10;
     
-    const totalSlots = nextRacesCount * maxPerHeat;
-    let guaranteed = Math.floor(totalSlots / currentRacesCount);
-    
-    // Safety check: if guaranteed > maxPerHeat, cap it
-    if (guaranteed > maxPerHeat) guaranteed = maxPerHeat;
-    
-    let missingSlots = totalSlots - (guaranteed * currentRacesCount);
-    if (missingSlots < 0) missingSlots = 0;
+    // Look up progression rule for the current round
+    const rule = await ProgressionRule.findOne({
+      tournamentId: tournament._id,
+      fromRound: currentRound.roundNumber
+    });
 
-    // Fetch all results for current round races
+    let guaranteed;
+    let missingSlots;
+    if (rule) {
+      guaranteed = rule.directQualifiersPerHeat;
+      missingSlots = rule.wildcardsCount;
+    } else {
+      // Fallback to original calculation
+      const totalSlots = nextRacesCount * maxPerHeat;
+      guaranteed = Math.floor(totalSlots / currentRacesCount);
+      if (guaranteed > maxPerHeat) guaranteed = maxPerHeat;
+      missingSlots = totalSlots - (guaranteed * currentRacesCount);
+      if (missingSlots < 0) missingSlots = 0;
+    }
+
+    // Fetch all results for current round races with horse ownerId and name populated
     const allResults = await Result.find({ raceId: { $in: raceIdsInRound }, status: 'FINISHED' })
-      .populate('horseId', 'ownerId');
+      .populate('horseId', 'name ownerId');
 
     const directQualifiers = [];
     const losersList = [];
@@ -107,10 +120,13 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
     const mappedHorses = advancingResults.map(res => ({
       horseId: res.horseId._id,
       ownerId: res.horseId.ownerId,
+      name: res.horseId.name,
       seed: null
     }));
 
     const heats = balanceHeats(mappedHorses, maxPerHeat, 'RANDOM');
+
+    const roundNameVietnamese = nextRacesCount === 1 ? 'Chung kết' : (nextRacesCount === 2 ? 'Bán kết' : 'Vòng loại');
 
     // Create next round races
     let baseTime = new Date();
@@ -124,16 +140,28 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
       const heatHorses = heats[i];
       const scheduledTime = new Date(baseTime.getTime() + (i * 30 * 60 * 1000));
       
-      const newRace = new Race({
+      // Attempt to reuse pre-generated pending race
+      let newRace = await Race.findOne({
         tournamentId: tournament._id,
-        name: `${tournament.name} - ${roundName} - Heat ${i + 1}`,
-        distance: races[0].distance, // Keep same distance
-        scheduledAt: scheduledTime,
-        maxHorses: maxPerHeat,
-        status: 'PENDING',
-        createdBy: races[0].createdBy,
+        name: `${tournament.name} - ${roundNameVietnamese} - Heat ${i + 1}`
       });
-      await newRace.save();
+
+      if (newRace) {
+        newRace.scheduledAt = scheduledTime;
+        newRace.status = 'PENDING';
+        await newRace.save();
+      } else {
+        newRace = new Race({
+          tournamentId: tournament._id,
+          name: `${tournament.name} - ${roundNameVietnamese} - Heat ${i + 1}`,
+          distance: races[0].distance, // Keep same distance
+          scheduledAt: scheduledTime,
+          maxHorses: maxPerHeat,
+          status: 'PENDING',
+          createdBy: races[0].createdBy,
+        });
+        await newRace.save();
+      }
       racesCreatedCount++;
 
       const registeredScheduleHorses = [];
@@ -167,22 +195,45 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
       });
       await schedule.save();
 
-      nextRoundMatches.push({
+      const matchObj = {
         matchNumber: i + 1,
         raceId: newRace._id,
         isBye: false,
         scheduledAt: scheduledTime.toISOString(),
         bracketPosition: `${nextRoundNumber}-${i + 1}`,
         heatSize: heatHorses.length
+      };
+
+      // Populate empty horse fields up to 8
+      for (let idx = 0; idx < 8; idx++) {
+        matchObj[`horse${idx + 1}Id`] = null;
+        matchObj[`horse${idx + 1}Name`] = "";
+      }
+
+      // Populate horse fields for the frontend
+      heatHorses.forEach((item, idx) => {
+        const horseNum = idx + 1;
+        matchObj[`horse${horseNum}Id`] = item.horse.horseId;
+        matchObj[`horse${horseNum}Name`] = item.horse.name;
       });
+
+      nextRoundMatches.push(matchObj);
     }
 
     // Update bracket
-    tournament.bracket.rounds.push({
-      roundNumber: nextRoundNumber,
-      roundName: roundName,
-      matches: nextRoundMatches
-    });
+    let existingRound = tournament.bracket.rounds.find(r => r.roundNumber === nextRoundNumber);
+    if (existingRound) {
+      existingRound.matches = nextRoundMatches;
+      existingRound.roundName = roundName;
+      existingRound.name = roundNameVietnamese;
+    } else {
+      tournament.bracket.rounds.push({
+        roundNumber: nextRoundNumber,
+        roundName: roundName,
+        name: roundNameVietnamese,
+        matches: nextRoundMatches
+      });
+    }
     
     // Mark mixed type array as modified for mongoose
     tournament.markModified('bracket');

@@ -12,61 +12,54 @@ function balanceHeats(horses, maxPerHeat, pairingMethod = 'RANDOM') {
   const totalHorses = horses.length;
   const numHeats = Math.ceil(totalHorses / maxPerHeat);
   
-  // Tính toán số lượng ngựa cho từng heat để cân bằng nhất có thể
-  const baseCount = Math.floor(totalHorses / numHeats);
-  const remainder = totalHorses % numHeats;
-  
-  const heatSizes = [];
-  for (let i = 0; i < numHeats; i++) {
-    heatSizes.push(baseCount + (i < remainder ? 1 : 0));
-  }
-  
   // Clone mảng horses để không ảnh hưởng mảng gốc
   let sortedHorses = [...horses];
   
   if (pairingMethod === 'SEEDED') {
-    // Giả sử các ngựa đã được sort theo seed từ trước, hoặc sort tại đây
-    sortedHorses.sort((a, b) => {
-      const seedA = a.seed != null ? a.seed : Infinity;
-      const seedB = b.seed != null ? b.seed : Infinity;
-      return seedA - seedB;
-    });
+    // Tách nhóm có seed và không có seed
+    const seeded = sortedHorses.filter(h => h.seed != null);
+    const unseeded = sortedHorses.filter(h => h.seed == null);
+    
+    // Sắp xếp seeded tăng dần theo seed (seed 1 là mạnh nhất)
+    seeded.sort((a, b) => a.seed - b.seed);
+    
+    // Shuffle nhóm không có seed bằng Fisher-Yates
+    for (let i = unseeded.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [unseeded[i], unseeded[j]] = [unseeded[j], unseeded[i]];
+    }
+    
+    sortedHorses = [...seeded, ...unseeded];
   } else {
-    // RANDOM
-    sortedHorses.sort(() => Math.random() - 0.5);
+    // RANDOM: Shuffle toàn bộ danh sách bằng Fisher-Yates
+    for (let i = sortedHorses.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [sortedHorses[i], sortedHorses[j]] = [sortedHorses[j], sortedHorses[i]];
+    }
   }
 
-  // Tạo các heats
+  // Rải ngựa lần lượt vào các bảng A, B, C theo chiều tiến rồi quay đầu lùi (Snake Draft)
   const heats = Array.from({ length: numHeats }, () => []);
-  
-  if (pairingMethod === 'SEEDED') {
-    // Rải đều các hạt giống vào các heats theo snake pattern
-    for (let i = 0; i < sortedHorses.length; i++) {
-      const round = Math.floor(i / numHeats);
-      let heatIndex;
-      if (round % 2 === 0) {
-        heatIndex = i % numHeats;
-      } else {
-        heatIndex = numHeats - 1 - (i % numHeats);
-      }
-      heats[heatIndex].push(sortedHorses[i]);
+  for (let i = 0; i < sortedHorses.length; i++) {
+    const round = Math.floor(i / numHeats);
+    let heatIndex;
+    if (round % 2 === 0) {
+      heatIndex = i % numHeats;
+    } else {
+      heatIndex = numHeats - 1 - (i % numHeats);
     }
-  } else {
-    // RANDOM thì cứ lấy theo mảng đã shuffle và cắt theo heatSizes
-    let currentIndex = 0;
-    for (let i = 0; i < numHeats; i++) {
-      const size = heatSizes[i];
-      heats[i] = sortedHorses.slice(currentIndex, currentIndex + size);
-      currentIndex += size;
-    }
+    heats[heatIndex].push(sortedHorses[i]);
   }
 
-  // Randomize starting_gate cho từng ngựa trong từng heat
+  // Tạo startingGate ngẫu nhiên cho các ngựa trong từng heat
   return heats.map(heatHorses => {
-    // Tạo mảng gate [1, 2, ..., size]
     const gates = Array.from({ length: heatHorses.length }, (_, i) => i + 1);
-    // Shuffle gates
-    gates.sort(() => Math.random() - 0.5);
+    
+    // Fisher-Yates shuffle cho starting gates
+    for (let i = gates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [gates[i], gates[j]] = [gates[j], gates[i]];
+    }
     
     return heatHorses.map((horse, index) => ({
       horse,

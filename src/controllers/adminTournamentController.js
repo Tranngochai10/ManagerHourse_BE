@@ -7,6 +7,7 @@ const Schedule = require('../models/Schedule');
 const RaceRegistration = require('../models/RaceRegistration');
 const Horse = require('../models/Horse');
 const { balanceHeats } = require('../utils/tournamentAlgo');
+const ProgressionRule = require('../models/ProgressionRule');
 // POST /admin/tournaments
 exports.createTournament = async (req, res) => {
   try {
@@ -232,9 +233,9 @@ exports.generateBracket = async (req, res) => {
       pairingMethod = 'RANDOM',
       seeds = [],
       matchIntervalMinutes = 30,
-      forceContinueIfBelowMin = false,
-      maxPerHeat = 10,
     } = req.body;
+
+    const maxPerHeat = 8; // Force fixed 8-horse layout
 
     const tournament = await Tournament.findById(tournamentId);
     if (!tournament) {
@@ -258,17 +259,38 @@ exports.generateBracket = async (req, res) => {
     }).populate('horseId');
 
     const approvedCount = registrations.length;
-    if (approvedCount < tournament.minHorses && !forceContinueIfBelowMin) {
-      return res.status(409).json({ message: `Conflict: Approved horse count (${approvedCount}) is below minimum (${tournament.minHorses})` });
+    const minHorses = tournament.minHorses || 2;
+    if (approvedCount < minHorses) {
+      return res.status(400).json({
+        message: `Số lượng ngựa đã duyệt (${approvedCount}) không đạt điều kiện tối thiểu của giải đấu (${minHorses})`
+      });
     }
 
-    if (approvedCount === 0) {
-      return res.status(400).json({ message: 'No approved horses to generate bracket' });
-    }
-
-    // Call balanceHeats algorithm
+    // Call balanceHeats algorithm with forced 8 limit
     const heats = balanceHeats(registrations, maxPerHeat, pairingMethod);
     
+    // Clear old progression rules for this tournament first
+    await ProgressionRule.deleteMany({ tournamentId });
+
+    // Calculate and generate progression rules for all rounds in the tournament
+    let currentHeatsCount = heats.length;
+    let roundNo = 1;
+    while (currentHeatsCount > 1) {
+      const nextHeatsCount = Math.ceil(currentHeatsCount / 2);
+      
+      const rule = new ProgressionRule({
+        tournamentId,
+        fromRound: roundNo,
+        toRound: roundNo + 1,
+        directQualifiersPerHeat: 4, // Always Top 4
+        wildcardsCount: 0, // No wildcards in standard 8-horse layout
+      });
+      await rule.save();
+
+      currentHeatsCount = nextHeatsCount;
+      roundNo++;
+    }
+
     let racesCreatedCount = 0;
     const roundMatches = [];
     let baseTime = new Date(tournament.startDate);
@@ -319,23 +341,94 @@ exports.generateBracket = async (req, res) => {
       });
       await schedule.save();
 
-      roundMatches.push({
+      const matchObj = {
         matchNumber: i + 1,
         raceId: race._id,
         isBye: false,
         scheduledAt: scheduledTime.toISOString(),
         bracketPosition: `1-${i + 1}`,
         heatSize: heatHorses.length
+      };
+
+      // Populate empty horse fields up to 8
+      for (let idx = 0; idx < 8; idx++) {
+        matchObj[`horse${idx + 1}Id`] = null;
+        matchObj[`horse${idx + 1}Name`] = "";
+      }
+
+      // Populate actual horse fields for the frontend
+      heatHorses.forEach((item, idx) => {
+        const horseNum = idx + 1;
+        const horseObj = item.horse.horseId; // populated Horse document
+        matchObj[`horse${horseNum}Id`] = horseObj._id;
+        matchObj[`horse${horseNum}Name`] = horseObj.name;
       });
+
+      roundMatches.push(matchObj);
+    }
+
+    const roundNameVal = heats.length === 1 ? 'Chung kết' : (heats.length === 2 ? 'Bán kết' : 'Vòng loại');
+
+    const rounds = [{
+      roundNumber: 1,
+      roundName: roundNameVal,
+      name: roundNameVal,
+      matches: roundMatches
+    }];
+
+    // Pre-generate future placeholder rounds and pending races in database
+    let simulationHeatsCount = heats.length;
+    let simulatedRoundNo = 1;
+    while (simulationHeatsCount > 1) {
+      simulatedRoundNo++;
+      const nextHeatsCount = Math.ceil(simulationHeatsCount / 2);
+      const roundName = nextHeatsCount === 1 ? 'Chung kết' : (nextHeatsCount === 2 ? 'Bán kết' : 'Vòng loại');
+      
+      const nextRoundMatches = [];
+      for (let i = 0; i < nextHeatsCount; i++) {
+        // Create pending future race in DB
+        const futureRace = new Race({
+          tournamentId,
+          name: `${tournament.name} - ${roundName} - Heat ${i + 1}`,
+          distance: 1000,
+          scheduledAt: new Date(baseTime.getTime() + ((simulatedRoundNo - 1) * 24 * 60 * 60 * 1000)), // dummy schedule time (+days)
+          maxHorses: maxPerHeat,
+          status: 'PENDING',
+          createdBy: req.user._id,
+        });
+        await futureRace.save();
+        racesCreatedCount++;
+
+        const matchObj = {
+          matchNumber: i + 1,
+          raceId: futureRace._id,
+          isBye: false,
+          scheduledAt: futureRace.scheduledAt.toISOString(),
+          bracketPosition: `${simulatedRoundNo}-${i + 1}`,
+          heatSize: 0,
+        };
+
+        // Populate empty fields up to 8
+        for (let idx = 0; idx < 8; idx++) {
+          matchObj[`horse${idx + 1}Id`] = null;
+          matchObj[`horse${idx + 1}Name`] = "";
+        }
+        nextRoundMatches.push(matchObj);
+      }
+
+      rounds.push({
+        roundNumber: simulatedRoundNo,
+        roundName: roundName,
+        name: roundName,
+        matches: nextRoundMatches
+      });
+
+      simulationHeatsCount = nextHeatsCount;
     }
 
     const bracket = {
       tournamentId,
-      rounds: [{
-        roundNumber: 1,
-        roundName: 'Round 1',
-        matches: roundMatches
-      }],
+      rounds,
     };
 
     tournament.bracket = bracket;
