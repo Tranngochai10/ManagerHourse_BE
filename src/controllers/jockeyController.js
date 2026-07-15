@@ -176,8 +176,8 @@ exports.getMyInvitations = async (req, res) => {
     const skip = (page - 1) * limit;
 
     const invitations = await Invitation.find(filter)
-      .populate("horseId", "name")
-      .populate("raceId", "name date")
+      .populate("horseId", "name breed weight")
+      .populate("raceId", "name scheduledAt distance")
       .populate("ownerId", "fullName email")
       .sort({ sentAt: -1 })
       .skip(skip)
