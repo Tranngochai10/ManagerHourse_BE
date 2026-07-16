@@ -6,7 +6,13 @@ const Violation = require('../models/Violation');
 const RaceResult = require('../models/RaceResult');
 const RaceReport = require('../models/RaceReport');
 const Invitation = require('../models/Invitation');
+const Result = require('../models/Result');
+const Prediction = require('../models/Prediction');
+const Spectator = require('../models/Spectator');
+const Notification = require('../models/Notification');
+const mongoose = require('mongoose');
 const { updateJockeyStats } = require('./jockeyController');
+
 const { checkAndAdvanceRound } = require('../utils/autoAdvance');
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
@@ -326,6 +332,77 @@ exports.confirmResult = async (req, res) => {
       await updateJockeyStats(jId);
     }
 
+    // 1. Tự động đồng bộ sang bảng Result chính thức
+    await Result.deleteMany({ raceId: req.params.raceId });
+    for (const r of rankings) {
+      const newResult = new Result({
+        raceId: req.params.raceId,
+        horseId: r.horseId,
+        jockeyId: r.jockeyId,
+        position: r.position,
+        finishTime: String(r.finishTime),
+        status: 'FINISHED',
+        prizeAmount: 0,
+        notes: notes || '',
+        publishedAt: new Date(),
+        publishedBy: req.user._id,
+      });
+      await newResult.save();
+    }
+
+    // 2. Tự động quyết toán điểm cược và trả thưởng (Settle Predictions)
+    const predictions = await Prediction.find({
+      raceId: req.params.raceId,
+      status: { $in: ['OPEN', 'CLOSED'] },
+    });
+
+    const horsePositionMap = {};
+    rankings.forEach((r) => {
+      horsePositionMap[r.horseId.toString()] = r.position;
+    });
+
+    for (const prediction of predictions) {
+      const horseIdStr = prediction.horseId.toString();
+      const actualPosition = horsePositionMap[horseIdStr];
+
+      let status = 'LOST';
+      let notificationType = 'PREDICTION_LOST';
+      let notificationMessage = `Your prediction for this race was lost. Your horse finished at position ${actualPosition || 'N/A'}.`;
+      let notificationTitle = 'Prediction Lost';
+
+      if (actualPosition === 1) {
+        status = 'WON';
+        notificationType = 'PREDICTION_WON';
+        notificationMessage = `Congratulations! You won! Prize: ${prediction.prizeAmount.toLocaleString()} points`;
+        notificationTitle = 'Prediction Won!';
+
+        // Cộng điểm ví cho spectator
+        await Spectator.updateOne(
+          { userId: prediction.spectatorId },
+          { $inc: { points: prediction.prizeAmount } }
+        );
+      }
+
+      // Cập nhật trạng thái prediction
+      prediction.status = status;
+      prediction.actualPosition = actualPosition || null;
+      prediction.settledAt = new Date();
+      prediction.settledBy = req.user._id;
+      await prediction.save();
+
+      // Tạo thông báo cho spectator
+      const notification = new Notification({
+        spectatorId: prediction.spectatorId,
+        predictionId: prediction._id,
+        raceId: req.params.raceId,
+        type: notificationType,
+        title: notificationTitle,
+        message: notificationMessage,
+        prizeAmount: status === 'WON' ? prediction.prizeAmount : 0,
+      });
+      await notification.save();
+    }
+
     // Trigger Auto-Advance check asynchronously if race belongs to a tournament
     if (updatedRace && updatedRace.tournamentId) {
       checkAndAdvanceRound(updatedRace.tournamentId, updatedRace._id).catch(err => console.error("[AutoAdvance] Error:", err));
@@ -335,6 +412,7 @@ exports.confirmResult = async (req, res) => {
       raceId: race._id,
       status: 'RESULT_CONFIRMED',
       confirmedAt: raceResult.confirmedAt,
+      settledCount: predictions.length,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
