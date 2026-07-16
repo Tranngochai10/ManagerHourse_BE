@@ -8,7 +8,7 @@ const RaceRegistration = require('../models/RaceRegistration');
 const Horse = require('../models/Horse');
 const { emitEvent } = require('../utils/socket');
 
-const { balanceHeats } = require('../utils/tournamentAlgo');
+const { balanceHeats, computeAdvancement } = require('../utils/tournamentAlgo');
 const ProgressionRule = require('../models/ProgressionRule');
 // POST /admin/tournaments
 exports.createTournament = async (req, res) => {
@@ -244,9 +244,11 @@ exports.generateBracket = async (req, res) => {
       seeds = [],
       matchIntervalMinutes = 30,
       draftBracket,
+      maxHorsesPerRace = 8,  // FE có thể override, default = 8
+      advancingPerRace = null, // null → BE tự tính; số cụ thể → FE override
     } = req.body;
 
-    const maxPerHeat = 8; // Force fixed 8-horse layout
+    const maxPerHeat = Math.max(2, parseInt(maxHorsesPerRace) || 8);
 
     const tournament = await Tournament.findById(tournamentId);
     if (!tournament) {
@@ -277,7 +279,16 @@ exports.generateBracket = async (req, res) => {
       });
     }
 
-    // Call balanceHeats algorithm with forced 8 limit
+    // Tính toán động: số ngựa đi tiếp mỗi bảng và số wildcard cần bù
+    const advancement = computeAdvancement(approvedCount, maxPerHeat);
+    // Nếu FE truyền advancingPerRace → dùng của FE, ngược lại dùng giá trị tính toán
+    const topAdvancePerHeat = (advancingPerRace != null && parseInt(advancingPerRace) > 0)
+      ? parseInt(advancingPerRace)
+      : advancement.directTop;
+    // wildcards chỉ dùng khi không bị FE override (vì FE đã tự tính)
+    const wildcardsCount = (advancingPerRace != null) ? 0 : advancement.wildcards;
+
+    // Call balanceHeats algorithm
     const heats = balanceHeats(registrations, maxPerHeat, pairingMethod);
     
     // Clear old progression rules, races, schedules, and race registrations for this tournament first
@@ -293,13 +304,18 @@ exports.generateBracket = async (req, res) => {
     let roundNo = 1;
     while (currentHeatsCount > 1) {
       const nextHeatsCount = Math.ceil(currentHeatsCount / 2);
-      
+
+      // Với round đầu: dùng giá trị đã tính/override; với round sau: tính lại động
+      const roundAdvancement = roundNo === 1
+        ? { directTop: topAdvancePerHeat, wildcards: wildcardsCount }
+        : computeAdvancement(currentHeatsCount * topAdvancePerHeat, maxPerHeat);
+
       const rule = new ProgressionRule({
         tournamentId,
         fromRound: roundNo,
         toRound: roundNo + 1,
-        directQualifiersPerHeat: 4, // Always Top 4
-        wildcardsCount: 0, // No wildcards in standard 8-horse layout
+        directQualifiersPerHeat: roundNo === 1 ? topAdvancePerHeat : roundAdvancement.directTop,
+        wildcardsCount: roundNo === 1 ? wildcardsCount : roundAdvancement.wildcards,
       });
       await rule.save();
 
@@ -373,7 +389,7 @@ exports.generateBracket = async (req, res) => {
         finalRounds[0].races[i].raceId = race._id;
         finalRounds[0].races[i].horseCount = heatHorses.length;
         if (finalRounds[0].races[i].topAdvance === undefined) {
-          finalRounds[0].races[i].topAdvance = 4;
+          finalRounds[0].races[i].topAdvance = topAdvancePerHeat;
         }
       } else {
         if (!finalRounds[0]) {
@@ -382,14 +398,15 @@ exports.generateBracket = async (req, res) => {
             roundNumber: 1,
             roundName: roundNameVal,
             name: roundNameVal,
-            races: []
+            races: [],
+            wildcards: wildcardsCount,
           };
         }
         finalRounds[0].races.push({
           name: race.name,
           raceId: race._id,
           horseCount: heatHorses.length,
-          topAdvance: 4
+          topAdvance: topAdvancePerHeat,
         });
       }
     }
@@ -422,11 +439,16 @@ exports.generateBracket = async (req, res) => {
         await futureRace.save();
         racesCreatedCount++;
 
+        // Tính toán topAdvance cho các round tương lai
+        const futureAdvancement = computeAdvancement(nextHeatsCount * maxPerHeat, maxPerHeat);
+        const futureTopAdvance = nextHeatsCount === 1 ? maxPerHeat : futureAdvancement.directTop;
+        const futureWildcards = nextHeatsCount === 1 ? 0 : futureAdvancement.wildcards;
+
         if (finalRounds[roundIdx] && finalRounds[roundIdx].races && finalRounds[roundIdx].races[i]) {
           finalRounds[roundIdx].races[i].raceId = futureRace._id;
           finalRounds[roundIdx].races[i].horseCount = 0;
           if (finalRounds[roundIdx].races[i].topAdvance === undefined) {
-            finalRounds[roundIdx].races[i].topAdvance = 4;
+            finalRounds[roundIdx].races[i].topAdvance = futureTopAdvance;
           }
         } else {
           if (!finalRounds[roundIdx]) {
@@ -434,14 +456,15 @@ exports.generateBracket = async (req, res) => {
               roundNumber: simulatedRoundNo,
               roundName: roundName,
               name: roundName,
-              races: []
+              races: [],
+              wildcards: futureWildcards,
             };
           }
           finalRounds[roundIdx].races.push({
             name: futureRace.name,
             raceId: futureRace._id,
             horseCount: 0,
-            topAdvance: 4
+            topAdvance: futureTopAdvance,
           });
         }
       }
@@ -463,7 +486,14 @@ exports.generateBracket = async (req, res) => {
       action: 'GENERATE_BRACKET',
       performedBy: req.user._id,
       performedByRole: req.user.role,
-      details: { pairingMethod, maxPerHeat, racesCreated: racesCreatedCount, approvedCount },
+      details: {
+        pairingMethod,
+        maxPerHeat,
+        topAdvancePerHeat,
+        wildcardsCount,
+        racesCreated: racesCreatedCount,
+        approvedCount,
+      },
       severity: 'IMPORTANT',
     });
     await auditLog.save();
