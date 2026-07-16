@@ -243,6 +243,7 @@ exports.generateBracket = async (req, res) => {
       pairingMethod = 'RANDOM',
       seeds = [],
       matchIntervalMinutes = 30,
+      draftBracket,
     } = req.body;
 
     const maxPerHeat = 8; // Force fixed 8-horse layout
@@ -279,7 +280,12 @@ exports.generateBracket = async (req, res) => {
     // Call balanceHeats algorithm with forced 8 limit
     const heats = balanceHeats(registrations, maxPerHeat, pairingMethod);
     
-    // Clear old progression rules for this tournament first
+    // Clear old progression rules, races, schedules, and race registrations for this tournament first
+    const oldRaces = await Race.find({ tournamentId });
+    const oldRaceIds = oldRaces.map(r => r._id);
+    await RaceRegistration.deleteMany({ raceId: { $in: oldRaceIds } });
+    await Race.deleteMany({ tournamentId });
+    await Schedule.deleteMany({ tournamentId });
     await ProgressionRule.deleteMany({ tournamentId });
 
     // Calculate and generate progression rules for all rounds in the tournament
@@ -302,16 +308,25 @@ exports.generateBracket = async (req, res) => {
     }
 
     let racesCreatedCount = 0;
-    const roundMatches = [];
     let baseTime = new Date(tournament.startDate);
+
+    let finalRounds = [];
+    if (draftBracket && Array.isArray(draftBracket.rounds)) {
+      finalRounds = JSON.parse(JSON.stringify(draftBracket.rounds));
+    }
 
     for (let i = 0; i < heats.length; i++) {
       const heatHorses = heats[i]; // Array of { horse, startingGate }
       const scheduledTime = new Date(baseTime.getTime() + (i * matchIntervalMinutes * 60 * 1000));
       
+      let raceName = `${tournament.name} - Round 1 - Heat ${i + 1}`;
+      if (finalRounds[0] && finalRounds[0].races && finalRounds[0].races[i]) {
+        raceName = finalRounds[0].races[i].name || raceName;
+      }
+
       const race = new Race({
         tournamentId,
-        name: `${tournament.name} - Round 1 - Heat ${i + 1}`,
+        name: raceName,
         distance: 1000,
         scheduledAt: scheduledTime,
         maxHorses: maxPerHeat,
@@ -349,26 +364,35 @@ exports.generateBracket = async (req, res) => {
         raceType: 'SPRINT',
         registeredHorses: registeredScheduleHorses,
       };
+      
+      // Instantiate Schedule correctly before saving
+      const schedule = new Schedule(scheduleObj);
       await schedule.save();
 
-      const raceObj = {
-        name: race.name,
-        raceId: race._id,
-        horseCount: heatHorses.length,
-        topAdvance: 4
-      };
-
-      roundMatches.push(raceObj);
+      if (finalRounds[0] && finalRounds[0].races && finalRounds[0].races[i]) {
+        finalRounds[0].races[i].raceId = race._id;
+        finalRounds[0].races[i].horseCount = heatHorses.length;
+        if (finalRounds[0].races[i].topAdvance === undefined) {
+          finalRounds[0].races[i].topAdvance = 4;
+        }
+      } else {
+        if (!finalRounds[0]) {
+          const roundNameVal = heats.length === 1 ? 'Chung kết' : (heats.length === 2 ? 'Bán kết' : 'Vòng loại');
+          finalRounds[0] = {
+            roundNumber: 1,
+            roundName: roundNameVal,
+            name: roundNameVal,
+            races: []
+          };
+        }
+        finalRounds[0].races.push({
+          name: race.name,
+          raceId: race._id,
+          horseCount: heatHorses.length,
+          topAdvance: 4
+        });
+      }
     }
-
-    const roundNameVal = heats.length === 1 ? 'Chung kết' : (heats.length === 2 ? 'Bán kết' : 'Vòng loại');
-
-    const rounds = [{
-      roundNumber: 1,
-      roundName: roundNameVal,
-      name: roundNameVal,
-      races: roundMatches
-    }];
 
     // Pre-generate future placeholder rounds and pending races in database
     let simulationHeatsCount = heats.length;
@@ -377,13 +401,18 @@ exports.generateBracket = async (req, res) => {
       simulatedRoundNo++;
       const nextHeatsCount = Math.ceil(simulationHeatsCount / 2);
       const roundName = nextHeatsCount === 1 ? 'Chung kết' : (nextHeatsCount === 2 ? 'Bán kết' : 'Vòng loại');
+      const roundIdx = simulatedRoundNo - 1;
       
-      const nextRoundRaces = [];
       for (let i = 0; i < nextHeatsCount; i++) {
+        let futureRaceName = `${tournament.name} - ${roundName} - Heat ${i + 1}`;
+        if (finalRounds[roundIdx] && finalRounds[roundIdx].races && finalRounds[roundIdx].races[i]) {
+          futureRaceName = finalRounds[roundIdx].races[i].name || futureRaceName;
+        }
+
         // Create pending future race in DB
         const futureRace = new Race({
           tournamentId,
-          name: `${tournament.name} - ${roundName} - Heat ${i + 1}`,
+          name: futureRaceName,
           distance: 1000,
           scheduledAt: new Date(baseTime.getTime() + ((simulatedRoundNo - 1) * 24 * 60 * 60 * 1000)), // dummy schedule time (+days)
           maxHorses: maxPerHeat,
@@ -393,29 +422,36 @@ exports.generateBracket = async (req, res) => {
         await futureRace.save();
         racesCreatedCount++;
 
-        const raceObj = {
-          name: futureRace.name,
-          raceId: futureRace._id,
-          horseCount: 0,
-          topAdvance: 4
-        };
-
-        nextRoundRaces.push(raceObj);
+        if (finalRounds[roundIdx] && finalRounds[roundIdx].races && finalRounds[roundIdx].races[i]) {
+          finalRounds[roundIdx].races[i].raceId = futureRace._id;
+          finalRounds[roundIdx].races[i].horseCount = 0;
+          if (finalRounds[roundIdx].races[i].topAdvance === undefined) {
+            finalRounds[roundIdx].races[i].topAdvance = 4;
+          }
+        } else {
+          if (!finalRounds[roundIdx]) {
+            finalRounds[roundIdx] = {
+              roundNumber: simulatedRoundNo,
+              roundName: roundName,
+              name: roundName,
+              races: []
+            };
+          }
+          finalRounds[roundIdx].races.push({
+            name: futureRace.name,
+            raceId: futureRace._id,
+            horseCount: 0,
+            topAdvance: 4
+          });
+        }
       }
-
-      rounds.push({
-        roundNumber: simulatedRoundNo,
-        roundName: roundName,
-        name: roundName,
-        races: nextRoundRaces
-      });
 
       simulationHeatsCount = nextHeatsCount;
     }
 
     const bracket = {
       tournamentId,
-      rounds,
+      rounds: finalRounds,
     };
 
     tournament.bracket = bracket;
