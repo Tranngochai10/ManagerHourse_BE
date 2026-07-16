@@ -256,6 +256,24 @@ exports.resolveViolation = async (req, res) => {
   }
 };
 
+const parseFinishTimeToSeconds = (timeVal) => {
+  if (timeVal === undefined || timeVal === null || timeVal === '') {
+    return 0;
+  }
+  if (typeof timeVal === 'number') {
+    return timeVal;
+  }
+  const str = String(timeVal).trim();
+  if (str.includes(':')) {
+    const parts = str.split(':');
+    const minutes = parseFloat(parts[0]) || 0;
+    const seconds = parseFloat(parts[1]) || 0;
+    return minutes * 60 + seconds;
+  }
+  const parsed = parseFloat(str);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
 // ─── POST /referee/races/:raceId/confirm-result ──────────────────────────────
 
 /**
@@ -269,10 +287,10 @@ exports.confirmResult = async (req, res) => {
     if (!race) return;
 
     // Race must be COMPLETED (ONGOING or COMPLETED - depending on workflow)
-    if (!['ONGOING', 'COMPLETED'].includes(race.status)) {
+    if (!['ONGOING', 'COMPLETED', 'RESULT_CONFIRMED'].includes(race.status)) {
       return res.status(400).json({
         message: 'RACE_NOT_FINISHED',
-        detail: 'Race must be ONGOING or COMPLETED before confirming results',
+        detail: 'Race must be ONGOING, COMPLETED or RESULT_CONFIRMED before confirming results',
       });
     }
 
@@ -340,7 +358,7 @@ exports.confirmResult = async (req, res) => {
         horseId: r.horseId,
         jockeyId: r.jockeyId,
         position: r.position,
-        finishTime: String(r.finishTime),
+        finishTime: parseFinishTimeToSeconds(r.finishTime),
         status: 'FINISHED',
         prizeAmount: 0,
         notes: notes || '',
