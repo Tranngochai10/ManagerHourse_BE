@@ -117,7 +117,42 @@ function fastestLoser(losersList, missingSlots) {
   return validLosers.slice(0, missingSlots);
 }
 
+/**
+ * Tính toán động số ngựa đi tiếp mỗi bảng (Dynamic Advancement)
+ * @param {Number} totalHorses - Tổng số ngựa tham gia vòng này
+ * @param {Number} maxPerHeat  - Số ngựa tối đa mỗi bảng đua (MAX_HORSES_PER_RACE)
+ * @returns {{ heats: Number, directTop: Number, wildcards: Number }}
+ *   heats      - Số bảng đấu cần tạo
+ *   directTop  - Số ngựa đi thẳng chính thức từ mỗi bảng
+ *   wildcards  - Số "fastest losers" cần lấy bù để đủ 1 vòng đua tiếp theo
+ *
+ * Ví dụ: N=20, MAX=8
+ *   heats = ceil(20/8) = 3
+ *   directTop = floor(8/3) = 2  → 3 heats × 2 = 6 ngựa đi thẳng
+ *   wildcards = 8 - 6 = 2       → lấy thêm 2 fastest losers
+ *   Tổng vào Round 2 = 8 (= MAX, lấp đầy đúng 1 chung kết)
+ */
+function computeAdvancement(totalHorses, maxPerHeat) {
+  if (totalHorses <= 0 || maxPerHeat <= 0) {
+    return { heats: 0, directTop: 0, wildcards: 0 };
+  }
+
+  const heats = Math.ceil(totalHorses / maxPerHeat);
+
+  // Nếu chỉ có 1 bảng → đã là chung kết, không cần tính advancement
+  if (heats === 1) {
+    return { heats: 1, directTop: totalHorses, wildcards: 0 };
+  }
+
+  const directTop = Math.floor(maxPerHeat / heats);
+  const directTotal = directTop * heats;
+  const wildcards = maxPerHeat - directTotal;
+
+  return { heats, directTop, wildcards };
+}
+
 module.exports = {
   balanceHeats,
   fastestLoser,
+  computeAdvancement,
 };
