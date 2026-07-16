@@ -60,7 +60,7 @@ exports.updateTournament = async (req, res) => {
       return res.status(404).json({ message: 'Tournament not found' });
     }
 
-    const { name, description, startDate, endDate, venue, prizePool, currency, maxHorses, status } = req.body;
+    const { name, description, startDate, endDate, venue, prizePool, currency, maxHorses, status, bracket } = req.body;
 
     // Validate date range if both provided
     if (startDate || endDate) {
@@ -88,6 +88,7 @@ exports.updateTournament = async (req, res) => {
     if (currency) tournament.currency = currency;
     if (maxHorses) tournament.maxHorses = maxHorses;
     if (status) tournament.status = status;
+    if (bracket !== undefined) tournament.bracket = bracket;
 
     const updated = await tournament.save();
     res.status(200).json(updated);
