@@ -121,4 +121,42 @@ router.get('/:tournamentId/bracket', getBracket);
  */
 router.post('/:tournamentId/register', protect, registerToTournament);
 
+/**
+ * @swagger
+ * /tournaments/{id}/bracket-with-races:
+ *   get:
+ *     summary: Get tournament bracket with race details
+ *     tags: [Tournaments]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Tournament ID
+ *     responses:
+ *       200:
+ *         description: Bracket with race information
+ *       404:
+ *         description: Tournament not found
+ */
+router.get('/:id/bracket-with-races', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const Tournament = require('../models/Tournament');
+    const tournament = await Tournament.findById(id);
+    
+    if (!tournament) {
+      return res.status(404).json({ message: 'Giải đấu không tìm thấy' });
+    }
+
+    res.status(200).json({
+      bracket: tournament.bracket,
+      message: 'Lấy sơ đồ thi đấu kèm race thành công'
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
 module.exports = router;
