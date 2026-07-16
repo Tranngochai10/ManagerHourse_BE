@@ -230,6 +230,19 @@ exports.acceptInvitation = async (req, res) => {
     invitation.updatedAt = new Date();
     await invitation.save();
 
+    // Đồng bộ jockeyId vào Schedule của cuộc đua
+    const Schedule = require("../models/Schedule");
+    const schedule = await Schedule.findOne({ raceId: invitation.raceId });
+    if (schedule) {
+      const horseIndex = schedule.registeredHorses.findIndex(
+        (h) => h.horseId.toString() === invitation.horseId.toString()
+      );
+      if (horseIndex !== -1) {
+        schedule.registeredHorses[horseIndex].jockeyId = jockey._id;
+        await schedule.save();
+      }
+    }
+
     res.json({
       invitationId: invitation._id,
       status: invitation.status,
@@ -330,6 +343,19 @@ exports.confirmJockey = async (req, res) => {
 
     invitation.status = "ACCEPTED";
     await invitation.save();
+
+    // Đồng bộ jockeyId vào Schedule của cuộc đua
+    const Schedule = require("../models/Schedule");
+    const schedule = await Schedule.findOne({ raceId });
+    if (schedule) {
+      const horseIndex = schedule.registeredHorses.findIndex(
+        (h) => h.horseId.toString() === horseId.toString()
+      );
+      if (horseIndex !== -1) {
+        schedule.registeredHorses[horseIndex].jockeyId = jockeyId;
+        await schedule.save();
+      }
+    }
 
     res.json({
       invitationId: invitation._id,
