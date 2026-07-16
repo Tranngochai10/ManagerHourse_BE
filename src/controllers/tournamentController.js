@@ -1,6 +1,7 @@
 const Tournament = require('../models/Tournament');
 const TournamentRegistration = require('../models/TournamentRegistration');
 const Horse = require('../models/Horse');
+const { emitEvent } = require('../utils/socket');
 
 // GET /tournaments — Public
 exports.getTournaments = async (req, res) => {
@@ -112,6 +113,11 @@ exports.registerToTournament = async (req, res) => {
       status: 'PENDING',
     });
     await registration.save();
+
+    emitEvent('registration_updated', {
+      registrationId: registration._id,
+      tournamentId: registration.tournamentId
+    });
 
     return res.status(201).json({
       registrationId: registration._id,

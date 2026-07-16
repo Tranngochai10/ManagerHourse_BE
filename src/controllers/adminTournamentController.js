@@ -6,6 +6,7 @@ const TournamentAuditLog = require('../models/TournamentAuditLog');
 const Schedule = require('../models/Schedule');
 const RaceRegistration = require('../models/RaceRegistration');
 const Horse = require('../models/Horse');
+const { emitEvent } = require('../utils/socket');
 
 // POST /admin/tournaments
 exports.createTournament = async (req, res) => {
@@ -39,6 +40,8 @@ exports.createTournament = async (req, res) => {
     });
 
     await tournament.save();
+
+    emitEvent('tournament_updated', { tournamentId: tournament._id, action: 'create' });
 
     res.status(201).json({
       tournamentId: tournament._id,
@@ -89,6 +92,7 @@ exports.updateTournament = async (req, res) => {
     if (status) tournament.status = status;
 
     const updated = await tournament.save();
+    emitEvent('tournament_updated', { tournamentId: tournament._id, action: 'update' });
     res.status(200).json(updated);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -113,6 +117,8 @@ exports.deleteTournament = async (req, res) => {
     // Also delete all races belonging to this tournament
     await Race.deleteMany({ tournamentId: tournament._id });
     await Tournament.deleteOne({ _id: tournament._id });
+
+    emitEvent('tournament_updated', { tournamentId: tournament._id, action: 'delete' });
 
     res.status(200).json({ message: 'Tournament deleted successfully' });
   } catch (error) {
@@ -169,6 +175,8 @@ exports.closeRegistration = async (req, res) => {
       severity: 'IMPORTANT',
     });
     await auditLog.save();
+
+    emitEvent('tournament_updated', { tournamentId, action: 'close_registration' });
 
     res.status(200).json({
       tournamentId,
@@ -414,6 +422,8 @@ exports.generateBracket = async (req, res) => {
     });
     await auditLog.save();
 
+    emitEvent('tournament_updated', { tournamentId, action: 'generate_bracket' });
+
     res.status(201).json({
       tournamentId,
       status: 'BRACKET_GENERATED',
@@ -468,6 +478,11 @@ exports.updateTournamentRegistration = async (req, res) => {
     }
     await registration.save();
 
+    emitEvent('registration_updated', {
+      registrationId: registration._id,
+      tournamentId: registration.tournamentId._id || registration.tournamentId
+    });
+
     return res.status(200).json({
       registrationId: registration._id,
       horse: registration.horseId,
@@ -515,6 +530,8 @@ exports.updateSeeds = async (req, res) => {
       severity: 'INFO',
     });
     await auditLog.save();
+
+    emitEvent('registration_updated', { tournamentId });
 
     res.status(200).json({ message: 'Updated seeds successfully' });
   } catch (error) {
@@ -596,6 +613,8 @@ exports.withdrawHorse = async (req, res) => {
       severity: 'WARNING',
     });
     await auditLog.save();
+
+    emitEvent('tournament_updated', { tournamentId, action: 'withdraw_horse' });
 
     res.status(200).json({
       tournamentId,
@@ -690,6 +709,8 @@ exports.generateHeats = async (req, res) => {
       tournament.status = 'BRACKET_GENERATED';
       await tournament.save();
     }
+
+    emitEvent('tournament_updated', { tournamentId, action: 'generate_heats' });
 
     return res.status(201).json({
       message: `Generated ${createdRaces.length} heat(s) successfully`,
