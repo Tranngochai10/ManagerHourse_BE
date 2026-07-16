@@ -61,8 +61,14 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
     
     // Check if next round already populated (not placeholder)
     const nextRound = rounds.find(r => r.roundNumber === nextRoundNumber);
-    if (nextRound && nextRound.races && nextRound.races.some(r => r.raceId !== null)) {
-      return;  // Vòng tiếp theo đã được khởi tạo race rồi
+    if (nextRound && nextRound.races) {
+      const nextRaceIds = nextRound.races.map(r => r.raceId).filter(Boolean);
+      const registrationsCount = await RaceRegistration.countDocuments({
+        raceId: { $in: nextRaceIds }
+      });
+      if (registrationsCount > 0) {
+        return;  // Vòng tiếp theo đã được khởi tạo race và gán ngựa rồi
+      }
     }
 
     const currentRacesCount = races.length;
@@ -178,20 +184,38 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
       const heatHorses = heats[i];
       const scheduledTime = new Date(baseTime.getTime() + (i * 30 * 60 * 1000));
       
-      // Attempt to reuse pre-generated pending race
-      let newRace = await Race.findOne({
-        tournamentId: tournament._id,
-        name: `${tournament.name} - ${roundNameVietnamese} - Heat ${i + 1}`
-      });
+      // Attempt to reuse pre-generated pending race by ID first
+      let pregeneratedRaceId = null;
+      const nextRoundInBracket = tournament.bracket.rounds[currentRoundIndex + 1];
+      if (nextRoundInBracket && nextRoundInBracket.races && nextRoundInBracket.races[i]) {
+        pregeneratedRaceId = nextRoundInBracket.races[i].raceId;
+      }
+
+      let newRace = null;
+      if (pregeneratedRaceId) {
+        newRace = await Race.findById(pregeneratedRaceId);
+      }
+
+      if (!newRace) {
+        // Fallback to name search just in case
+        newRace = await Race.findOne({
+          tournamentId: tournament._id,
+          name: `${tournament.name} - ${roundNameVietnamese} - Heat ${i + 1}`
+        });
+      }
+
+      const raceName = (nextRoundInBracket && nextRoundInBracket.races && nextRoundInBracket.races[i] && nextRoundInBracket.races[i].name)
+        || `${tournament.name} - ${roundNameVietnamese} - Heat ${i + 1}`;
 
       if (newRace) {
         newRace.scheduledAt = scheduledTime;
         newRace.status = 'PENDING';
+        newRace.name = raceName;
         await newRace.save();
       } else {
         newRace = new Race({
           tournamentId: tournament._id,
-          name: `${tournament.name} - ${roundNameVietnamese} - Heat ${i + 1}`,
+          name: raceName,
           distance: races[0].distance, // Keep same distance
           scheduledAt: scheduledTime,
           maxHorses: maxPerHeat,
@@ -203,11 +227,11 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
       racesCreatedCount++;
 
       // ✅ Cập nhật bracket với raceId mới
-      const nextRoundInBracket = tournament.bracket.rounds[currentRoundIndex + 1];
       if (nextRoundInBracket && nextRoundInBracket.races) {
         if (nextRoundInBracket.races[i]) {
           nextRoundInBracket.races[i].raceId = newRace._id;
           nextRoundInBracket.races[i].name = newRace.name;
+          nextRoundInBracket.races[i].horseCount = heatHorses.length;
         }
       }
 
