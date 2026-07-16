@@ -24,8 +24,8 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
     // Find the round that contains this race
     let currentRoundIndex = -1;
     for (let i = 0; i < rounds.length; i++) {
-      const match = rounds[i].matches.find(m => m.raceId && m.raceId.toString() === currentRaceId.toString());
-      if (match) {
+      const raceInRound = rounds[i].races && rounds[i].races.find(r => r.raceId && r.raceId.toString() === currentRaceId.toString());
+      if (raceInRound) {
         currentRoundIndex = i;
         break;
       }
@@ -36,7 +36,7 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
     }
 
     const currentRound = rounds[currentRoundIndex];
-    const raceIdsInRound = currentRound.matches.map(m => m.raceId).filter(Boolean);
+    const raceIdsInRound = currentRound.races.map(r => r.raceId).filter(Boolean);
 
     // Check statuses of all races in this round
     const races = await Race.find({ _id: { $in: raceIdsInRound } });
@@ -60,8 +60,8 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
     
     // Check if next round already populated (not placeholder)
     const nextRound = rounds.find(r => r.roundNumber === nextRoundNumber);
-    if (nextRound && nextRound.matches && nextRound.matches.some(m => m.horse1Id !== null)) {
-      return; 
+    if (nextRound && nextRound.races && nextRound.races.some(r => r.raceId !== null)) {
+      return;  // Vòng tiếp theo đã được khởi tạo race rồi
     }
 
     const currentRacesCount = races.length;
@@ -164,6 +164,15 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
       }
       racesCreatedCount++;
 
+      // ✅ Cập nhật bracket với raceId mới
+      const nextRoundInBracket = tournament.bracket.rounds[currentRoundIndex + 1];
+      if (nextRoundInBracket && nextRoundInBracket.races) {
+        if (nextRoundInBracket.races[i]) {
+          nextRoundInBracket.races[i].raceId = newRace._id;
+          nextRoundInBracket.races[i].name = newRace.name;
+        }
+      }
+
       const registeredScheduleHorses = [];
 
       for (const item of heatHorses) {
@@ -194,48 +203,9 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
         registeredHorses: registeredScheduleHorses,
       });
       await schedule.save();
-
-      const matchObj = {
-        matchNumber: i + 1,
-        raceId: newRace._id,
-        isBye: false,
-        scheduledAt: scheduledTime.toISOString(),
-        bracketPosition: `${nextRoundNumber}-${i + 1}`,
-        heatSize: heatHorses.length
-      };
-
-      // Populate empty horse fields up to 8
-      for (let idx = 0; idx < 8; idx++) {
-        matchObj[`horse${idx + 1}Id`] = null;
-        matchObj[`horse${idx + 1}Name`] = "";
-      }
-
-      // Populate horse fields for the frontend
-      heatHorses.forEach((item, idx) => {
-        const horseNum = idx + 1;
-        matchObj[`horse${horseNum}Id`] = item.horse.horseId;
-        matchObj[`horse${horseNum}Name`] = item.horse.name;
-      });
-
-      nextRoundMatches.push(matchObj);
     }
 
-    // Update bracket
-    let existingRound = tournament.bracket.rounds.find(r => r.roundNumber === nextRoundNumber);
-    if (existingRound) {
-      existingRound.matches = nextRoundMatches;
-      existingRound.roundName = roundName;
-      existingRound.name = roundNameVietnamese;
-    } else {
-      tournament.bracket.rounds.push({
-        roundNumber: nextRoundNumber,
-        roundName: roundName,
-        name: roundNameVietnamese,
-        matches: nextRoundMatches
-      });
-    }
-    
-    // Mark mixed type array as modified for mongoose
+    // ✅ Update bracket - Đã update ở phía tạo race, giờ just ensure saves
     tournament.markModified('bracket');
     tournament.currentRound = nextRoundNumber;
     
