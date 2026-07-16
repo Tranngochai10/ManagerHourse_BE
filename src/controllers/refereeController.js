@@ -7,6 +7,7 @@ const RaceResult = require('../models/RaceResult');
 const RaceReport = require('../models/RaceReport');
 const Invitation = require('../models/Invitation');
 const { updateJockeyStats } = require('./jockeyController');
+const { checkAndAdvanceRound } = require('../utils/autoAdvance');
 
 // ─── Helper ──────────────────────────────────────────────────────────────────
 
@@ -313,12 +314,21 @@ exports.confirmResult = async (req, res) => {
     );
 
     // Update race status to COMPLETED
-    await Race.findByIdAndUpdate(req.params.raceId, { $set: { status: 'COMPLETED' } });
+    const updatedRace = await Race.findByIdAndUpdate(
+      req.params.raceId, 
+      { $set: { status: 'RESULT_CONFIRMED' } },
+      { new: true }
+    );
 
     // Update Jockey Stats
     const uniqueJockeyIds = [...new Set(rankings.map(r => r.jockeyId))];
     for (const jId of uniqueJockeyIds) {
       await updateJockeyStats(jId);
+    }
+
+    // Trigger Auto-Advance check asynchronously if race belongs to a tournament
+    if (updatedRace && updatedRace.tournamentId) {
+      checkAndAdvanceRound(updatedRace.tournamentId, updatedRace._id).catch(err => console.error("[AutoAdvance] Error:", err));
     }
 
     res.status(200).json({

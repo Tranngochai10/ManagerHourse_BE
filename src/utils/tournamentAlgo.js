@@ -69,6 +69,29 @@ function balanceHeats(horses, maxPerHeat, pairingMethod = 'RANDOM') {
 }
 
 /**
+ * Helper to convert finish time string (like "1:12.345" or number) to total seconds
+ */
+function finishTimeToSeconds(time) {
+  if (typeof time === 'number') return time;
+  if (typeof time !== 'string') return Infinity;
+  
+  // Parse format like "mm:ss.xxx" or "ss.xxx"
+  const parts = time.split(':');
+  let minutes = 0;
+  let secondsPart = time;
+  
+  if (parts.length === 2) {
+    minutes = parseInt(parts[0], 10);
+    secondsPart = parts[1];
+  }
+  
+  const seconds = parseFloat(secondsPart);
+  if (isNaN(minutes) || isNaN(seconds)) return Infinity;
+  
+  return minutes * 60 + seconds;
+}
+
+/**
  * Vé Vớt (Fastest Loser)
  * Lấy các ngựa không lọt vào top chính thức, sắp xếp theo thời gian và chọn ra số lượng cần thiết
  * @param {Array} losersList - Mảng các kết quả (Result) của các ngựa không đậu chính thức
@@ -84,7 +107,11 @@ function fastestLoser(losersList, missingSlots) {
   );
 
   // Sắp xếp theo finishTime tăng dần (thời gian nhỏ nhất là nhanh nhất)
-  validLosers.sort((a, b) => a.finishTime - b.finishTime);
+  validLosers.sort((a, b) => {
+    const timeA = finishTimeToSeconds(a.finishTime);
+    const timeB = finishTimeToSeconds(b.finishTime);
+    return timeA - timeB;
+  });
 
   // Lấy ra đúng số lượng còn thiếu
   return validLosers.slice(0, missingSlots);

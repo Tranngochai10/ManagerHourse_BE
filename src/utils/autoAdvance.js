@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Tournament = require('../models/Tournament');
 const Race = require('../models/Race');
 const Result = require('../models/Result');
+const RaceResult = require('../models/RaceResult');
 const RaceRegistration = require('../models/RaceRegistration');
 const Schedule = require('../models/Schedule');
 const { balanceHeats, fastestLoser } = require('./tournamentAlgo');
@@ -40,7 +41,7 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
 
     // Check statuses of all races in this round
     const races = await Race.find({ _id: { $in: raceIdsInRound } });
-    const allCompleted = races.every(r => r.status === 'COMPLETED');
+    const allCompleted = races.every(r => r.status === 'COMPLETED' || r.status === 'RESULT_CONFIRMED');
 
     if (!allCompleted) {
       return; // Not all races are finished yet, do nothing.
@@ -93,24 +94,61 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
     }
 
     // Fetch all results for current round races with horse ownerId and name populated
-    const allResults = await Result.find({ raceId: { $in: raceIdsInRound }, status: 'FINISHED' })
-      .populate('horseId', 'name ownerId');
-
+    const allResultsData = [];
+    
+    for (const raceId of raceIdsInRound) {
+      // First check for RaceResult (referee confirmed)
+      let raceResult = await RaceResult.findOne({ raceId })
+        .populate('rankings.horseId', 'name ownerId');
+      
+      if (raceResult && raceResult.rankings) {
+        raceResult.rankings.forEach(r => {
+          allResultsData.push({
+            raceId: raceId,
+            horseId: r.horseId,
+            jockeyId: r.jockeyId,
+            position: r.position,
+            finishTime: r.finishTime,
+            status: 'FINISHED'
+          });
+        });
+      } else {
+        // Fallback to Result model
+        const results = await Result.find({ raceId, status: 'FINISHED' })
+          .populate('horseId', 'name ownerId');
+        allResultsData.push(...results);
+      }
+    }
+    
+    // Now, group by raceId to process per race
+    const resultsByRaceId = {};
+    allResultsData.forEach(res => {
+      const rid = res.raceId.toString();
+      if (!resultsByRaceId[rid]) resultsByRaceId[rid] = [];
+      resultsByRaceId[rid].push(res);
+    });
+    
     const directQualifiers = [];
     const losersList = [];
-
-    // Separate into qualifiers and losers
-    allResults.forEach(res => {
-      if (res.position <= guaranteed) {
-        directQualifiers.push(res);
-      } else {
-        losersList.push(res);
+    
+    // Process per race
+    for (const rid in resultsByRaceId) {
+      const raceResults = resultsByRaceId[rid].sort((a, b) => a.position - b.position);
+      
+      // Take guaranteed number from each race
+      for (let i = 0; i < raceResults.length; i++) {
+        if (i < guaranteed) {
+          directQualifiers.push(raceResults[i]);
+        } else {
+          losersList.push(raceResults[i]);
+        }
       }
-    });
-
+    }
+    
+    // Process wildcards
     const wildcards = fastestLoser(losersList, missingSlots);
     const advancingResults = [...directQualifiers, ...wildcards];
-
+    
     if (advancingResults.length === 0) {
       console.warn(`[AutoAdvance] No advancing horses found for tournament ${tournamentId}`);
       return;
@@ -118,7 +156,7 @@ async function checkAndAdvanceRound(tournamentId, currentRaceId) {
 
     // Map to format suitable for balanceHeats
     const mappedHorses = advancingResults.map(res => ({
-      horseId: res.horseId._id,
+      horseId: res.horseId._id || res.horseId,
       ownerId: res.horseId.ownerId,
       name: res.horseId.name,
       seed: null
