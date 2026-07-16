@@ -2,8 +2,10 @@ const Race = require("../models/Race");
 const Tournament = require("../models/Tournament");
 const User = require("../models/User");
 const RaceRegistration = require("../models/RaceRegistration");
+const TournamentRegistration = require("../models/TournamentRegistration");
 const Horse = require("../models/Horse");
-
+const { balanceHeats } = require("../utils/tournamentAlgo");
+const Schedule = require("../models/Schedule");
 // POST /admin/races
 exports.createRace = async (req, res) => {
   try {
@@ -167,15 +169,24 @@ exports.assignReferee = async (req, res) => {
 // GET /admin/races/registrations
 exports.getRaceRegistrations = async (req, res) => {
   try {
-    const { raceId, status } = req.query;
+    const { raceId, status, tournamentId } = req.query;
 
     // Build query filter
     const filter = {};
-    if (raceId) filter.raceId = raceId;
+    if (tournamentId) {
+      filter.tournamentId = tournamentId;
+    } else if (raceId) {
+      const race = await Race.findById(raceId);
+      if (race) {
+        filter.tournamentId = race.tournamentId;
+      } else {
+        return res.status(200).json({ total: 0, registrations: [] });
+      }
+    }
     if (status) filter.status = status;
 
     // Fetch registrations with populated references
-    const registrations = await RaceRegistration.find(filter)
+    const registrations = await TournamentRegistration.find(filter)
       .populate({
         path: "horseId",
         select: "name breed ownerId",
@@ -184,7 +195,7 @@ exports.getRaceRegistrations = async (req, res) => {
           select: "fullName email",
         },
       })
-      .populate("raceId", "name distance scheduledAt maxHorses")
+      .populate("tournamentId", "name status")
       .sort({ createdAt: -1 });
 
     res.status(200).json({
@@ -195,12 +206,12 @@ exports.getRaceRegistrations = async (req, res) => {
         horseName: reg.horseId ? reg.horseId.name : null,
         horseBreed: reg.horseId ? reg.horseId.breed : null,
         horseOwner: reg.horseId ? reg.horseId.ownerId : null,
-        raceId: reg.raceId ? reg.raceId._id : null,
-        raceName: reg.raceId ? reg.raceId.name : null,
-        raceDistance: reg.raceId ? reg.raceId.distance : null,
-        raceScheduledAt: reg.raceId ? reg.raceId.scheduledAt : null,
+        // Provide fallback fields in case frontend expects raceId/raceName
+        raceId: reg.tournamentId ? reg.tournamentId._id : null,
+        raceName: reg.tournamentId ? reg.tournamentId.name : null,
+        tournamentId: reg.tournamentId ? reg.tournamentId._id : null,
+        tournamentName: reg.tournamentId ? reg.tournamentId.name : null,
         status: reg.status,
-        confirmedByOwner: reg.confirmedByOwner,
         createdAt: reg.createdAt,
         updatedAt: reg.updatedAt,
       })),
@@ -213,19 +224,28 @@ exports.getRaceRegistrations = async (req, res) => {
 // PATCH /admin/races/registrations/:regId/approve
 exports.approveRaceRegistration = async (req, res) => {
   try {
-    const registration = await RaceRegistration.findById(req.params.regId)
+    const registration = await TournamentRegistration.findById(req.params.regId)
       .populate("horseId", "name breed")
-      .populate("raceId", "name distance");
+      .populate("tournamentId", "name maxHorses");
 
     if (!registration) {
       return res.status(404).json({ message: "Registration not found" });
     }
 
-    // Only approve if status is PENDING_APPROVAL
-    if (registration.status !== "PENDING_APPROVAL") {
+    // Only approve if status is PENDING
+    if (registration.status !== "PENDING") {
       return res.status(400).json({
         message: `Cannot approve registration with status: ${registration.status}`,
       });
+    }
+
+    // Check max approved horses
+    const approvedCount = await TournamentRegistration.countDocuments({
+      tournamentId: registration.tournamentId._id,
+      status: "APPROVED",
+    });
+    if (approvedCount >= registration.tournamentId.maxHorses) {
+      return res.status(400).json({ message: "Tournament has reached maximum approved horses" });
     }
 
     registration.status = "APPROVED";
@@ -235,8 +255,11 @@ exports.approveRaceRegistration = async (req, res) => {
       regId: registration._id,
       horseId: registration.horseId._id,
       horseName: registration.horseId.name,
-      raceId: registration.raceId._id,
-      raceName: registration.raceId.name,
+      tournamentId: registration.tournamentId._id,
+      tournamentName: registration.tournamentId.name,
+      // Fallbacks
+      raceId: registration.tournamentId._id,
+      raceName: registration.tournamentId.name,
       status: registration.status,
       message: "Registration approved successfully",
     });
@@ -249,16 +272,16 @@ exports.approveRaceRegistration = async (req, res) => {
 exports.rejectRaceRegistration = async (req, res) => {
   try {
     const { reason } = req.body;
-    const registration = await RaceRegistration.findById(req.params.regId)
+    const registration = await TournamentRegistration.findById(req.params.regId)
       .populate("horseId", "name breed")
-      .populate("raceId", "name distance");
+      .populate("tournamentId", "name");
 
     if (!registration) {
       return res.status(404).json({ message: "Registration not found" });
     }
 
-    // Only reject if status is PENDING_APPROVAL
-    if (registration.status !== "PENDING_APPROVAL") {
+    // Only reject if status is PENDING
+    if (registration.status !== "PENDING") {
       return res.status(400).json({
         message: `Cannot reject registration with status: ${registration.status}`,
       });
@@ -272,8 +295,11 @@ exports.rejectRaceRegistration = async (req, res) => {
       regId: registration._id,
       horseId: registration.horseId._id,
       horseName: registration.horseId.name,
-      raceId: registration.raceId._id,
-      raceName: registration.raceId.name,
+      tournamentId: registration.tournamentId._id,
+      tournamentName: registration.tournamentId.name,
+      // Fallbacks
+      raceId: registration.tournamentId._id,
+      raceName: registration.tournamentId.name,
       status: registration.status,
       rejectionReason: registration.rejectionReason,
       message: "Registration rejected successfully",
@@ -420,6 +446,132 @@ exports.advanceWinner = async (req, res) => {
       toRace: { id: toRace._id, name: toRace.name },
       assigned,
       skipped,
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// POST /admin/races/:raceId/split-heats
+exports.splitHeats = async (req, res) => {
+  try {
+    const { raceId } = req.params;
+    const { maxPerHeat = 10, matchIntervalMinutes = 30 } = req.body;
+
+    const race = await Race.findById(raceId);
+    if (!race) {
+      return res.status(404).json({ message: 'Race not found' });
+    }
+
+    if (race.status !== 'SCHEDULED' && race.status !== 'PENDING') {
+      return res.status(400).json({ message: `Cannot split race with status ${race.status}` });
+    }
+
+    // Get APPROVED/CONFIRMED registrations
+    const registrations = await RaceRegistration.find({
+      raceId,
+      status: { $in: ['APPROVED', 'CONFIRMED'] },
+    }).populate('horseId');
+
+    if (registrations.length <= maxPerHeat) {
+      return res.status(400).json({ message: 'Not enough horses to split into multiple heats based on maxPerHeat' });
+    }
+
+    // Map for balanceHeats
+    const mappedHorses = registrations.map(reg => ({
+      horseId: reg.horseId,
+      ownerId: reg.horseId ? reg.horseId.ownerId : null,
+      seed: null,
+    }));
+
+    const heats = balanceHeats(mappedHorses, maxPerHeat, 'RANDOM');
+    
+    const createdRaces = [];
+    let baseTime = new Date(race.scheduledAt);
+
+    // Cancel original race
+    race.status = 'CANCELLED';
+    await race.save();
+
+    // Cancel old schedule if exists
+    const oldSchedule = await Schedule.findOne({ raceId: race._id });
+    if (oldSchedule) {
+      oldSchedule.status = 'CANCELLED';
+      await oldSchedule.save();
+    }
+    
+    // Reject old registrations
+    await RaceRegistration.updateMany(
+      { raceId },
+      { status: 'REJECTED', rejectionReason: 'Race split into multiple heats' }
+    );
+
+    for (let i = 0; i < heats.length; i++) {
+      const heatHorses = heats[i];
+      const scheduledTime = new Date(baseTime.getTime() + (i * matchIntervalMinutes * 60 * 1000));
+      
+      const newRace = new Race({
+        tournamentId: race.tournamentId,
+        name: `${race.name} - Heat ${i + 1}`,
+        distance: race.distance,
+        scheduledAt: scheduledTime,
+        maxHorses: maxPerHeat,
+        status: 'PENDING',
+        createdBy: req.user._id,
+      });
+      await newRace.save();
+
+      const registeredScheduleHorses = [];
+
+      for (const item of heatHorses) {
+        if (!item.horse.horseId) continue;
+        const reg = new RaceRegistration({
+          horseId: item.horse.horseId._id,
+          raceId: newRace._id,
+          status: 'APPROVED',
+          startingGate: item.startingGate,
+        });
+        await reg.save();
+
+        registeredScheduleHorses.push({
+          horseId: item.horse.horseId._id,
+          ownerId: item.horse.ownerId,
+          status: 'CONFIRMED',
+        });
+      }
+
+      // Tournament for location fallback
+      let location = oldSchedule ? oldSchedule.location : 'Unknown';
+      if (location === 'Unknown' && race.tournamentId) {
+        const Tournament = require('../models/Tournament');
+        const tourn = await Tournament.findById(race.tournamentId);
+        if (tourn) location = tourn.venue;
+      }
+
+      const schedule = new Schedule({
+        raceId: newRace._id,
+        tournamentId: race.tournamentId,
+        raceName: newRace.name,
+        scheduledTime,
+        location: location,
+        distance: race.distance,
+        maxParticipants: maxPerHeat,
+        raceType: 'SPRINT',
+        registeredHorses: registeredScheduleHorses,
+      });
+      await schedule.save();
+
+      createdRaces.push({
+        raceId: newRace._id,
+        name: newRace.name,
+        heatSize: heatHorses.length
+      });
+    }
+
+    res.status(201).json({
+      message: 'Race successfully split into heats',
+      originalRaceId: raceId,
+      createdRaces,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

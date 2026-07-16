@@ -45,8 +45,28 @@ const tournamentSchema = new mongoose.Schema({
     default: 'DRAFT',
   },
   bracket: {
-    type: mongoose.Schema.Types.Mixed,
-    default: null,
+    type: {
+      rounds: [
+        {
+          roundNumber: Number,
+          roundName: String,
+          name: String,
+          races: [
+            {
+              name: String,
+              raceId: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'Race',
+                default: null
+              },
+              horseCount: Number,
+              topAdvance: Number
+            }
+          ]
+        }
+      ]
+    },
+    default: null
   },
   minHorses: {
     type: Number,

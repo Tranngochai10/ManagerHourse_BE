@@ -8,6 +8,8 @@ const RaceRegistration = require('../models/RaceRegistration');
 const Horse = require('../models/Horse');
 const { emitEvent } = require('../utils/socket');
 
+const { balanceHeats } = require('../utils/tournamentAlgo');
+const ProgressionRule = require('../models/ProgressionRule');
 // POST /admin/tournaments
 exports.createTournament = async (req, res) => {
   try {
@@ -62,7 +64,7 @@ exports.updateTournament = async (req, res) => {
       return res.status(404).json({ message: 'Tournament not found' });
     }
 
-    const { name, description, startDate, endDate, venue, prizePool, currency, maxHorses, status } = req.body;
+    const { name, description, startDate, endDate, venue, prizePool, currency, maxHorses, status, bracket } = req.body;
 
     // Validate date range if both provided
     if (startDate || endDate) {
@@ -90,6 +92,7 @@ exports.updateTournament = async (req, res) => {
     if (currency) tournament.currency = currency;
     if (maxHorses) tournament.maxHorses = maxHorses;
     if (status) tournament.status = status;
+    if (bracket !== undefined) tournament.bracket = bracket;
 
     const updated = await tournament.save();
     emitEvent('tournament_updated', { tournamentId: tournament._id, action: 'update' });
@@ -240,9 +243,9 @@ exports.generateBracket = async (req, res) => {
       pairingMethod = 'RANDOM',
       seeds = [],
       matchIntervalMinutes = 30,
-      roundIntervalDays = 1,
-      forceContinueIfBelowMin = false,
     } = req.body;
+
+    const maxPerHeat = 8; // Force fixed 8-horse layout
 
     const tournament = await Tournament.findById(tournamentId);
     if (!tournament) {
@@ -258,6 +261,7 @@ exports.generateBracket = async (req, res) => {
       }
     }
 
+    // Refresh registrations to get updated seeds
     const registrations = await TournamentRegistration.find({
       tournamentId,
       status: 'APPROVED',
@@ -265,142 +269,148 @@ exports.generateBracket = async (req, res) => {
     }).populate('horseId');
 
     const approvedCount = registrations.length;
-    if (approvedCount < 2 && !forceContinueIfBelowMin) {
-      return res.status(409).json({ message: 'Conflict: Approved horse count is below minimum (2)' });
-    }
-
-    if (approvedCount === 0) {
-      return res.status(400).json({ message: 'No approved horses to generate bracket' });
-    }
-
-    function getSeedingOrder(size) {
-      if (size === 2) return [1, 2];
-      const prev = getSeedingOrder(size / 2);
-      const order = [];
-      for (let i = 0; i < prev.length; i++) {
-        order.push(prev[i]);
-        order.push(size + 1 - prev[i]);
-      }
-      return order;
-    }
-
-    const R = Math.ceil(Math.log2(approvedCount));
-    const P = Math.pow(2, R === 0 ? 1 : R);
-
-    let sortedHorses = [...registrations];
-    if (pairingMethod === 'SEEDED') {
-      sortedHorses.sort((a, b) => {
-        const seedA = a.seed !== null && a.seed !== undefined ? a.seed : Infinity;
-        const seedB = b.seed !== null && b.seed !== undefined ? b.seed : Infinity;
-        return seedA - seedB;
+    const minHorses = tournament.minHorses || 2;
+    if (approvedCount < minHorses) {
+      return res.status(400).json({
+        message: `Số lượng ngựa đã duyệt (${approvedCount}) không đạt điều kiện tối thiểu của giải đấu (${minHorses})`
       });
-    } else {
-      sortedHorses.sort(() => Math.random() - 0.5);
     }
 
-    const slots = new Array(P).fill(null);
-    for (let i = 0; i < sortedHorses.length; i++) {
-      slots[i] = sortedHorses[i].horseId;
+    // Call balanceHeats algorithm with forced 8 limit
+    const heats = balanceHeats(registrations, maxPerHeat, pairingMethod);
+    
+    // Clear old progression rules for this tournament first
+    await ProgressionRule.deleteMany({ tournamentId });
+
+    // Calculate and generate progression rules for all rounds in the tournament
+    let currentHeatsCount = heats.length;
+    let roundNo = 1;
+    while (currentHeatsCount > 1) {
+      const nextHeatsCount = Math.ceil(currentHeatsCount / 2);
+      
+      const rule = new ProgressionRule({
+        tournamentId,
+        fromRound: roundNo,
+        toRound: roundNo + 1,
+        directQualifiersPerHeat: 4, // Always Top 4
+        wildcardsCount: 0, // No wildcards in standard 8-horse layout
+      });
+      await rule.save();
+
+      currentHeatsCount = nextHeatsCount;
+      roundNo++;
     }
 
-    const seedingOrder = getSeedingOrder(P);
     let racesCreatedCount = 0;
-    const rounds = [];
+    const roundMatches = [];
     let baseTime = new Date(tournament.startDate);
 
-    for (let r = 1; r <= R; r++) {
-      const roundMatchesCount = P / Math.pow(2, r);
-      const roundMatches = [];
-      const roundName = `Round ${r}`;
-
-      for (let m = 1; m <= roundMatchesCount; m++) {
-        let horse1 = null;
-        let horse2 = null;
-        let isBye = false;
-        let raceId = null;
-
-        const scheduledTime = new Date(baseTime.getTime() + (r - 1) * roundIntervalDays * 24 * 60 * 60 * 1000 + (m - 1) * matchIntervalMinutes * 60 * 1000);
-
-        if (r === 1) {
-          const slot1Idx = seedingOrder[2 * (m - 1)] - 1;
-          const slot2Idx = seedingOrder[2 * (m - 1) + 1] - 1;
-          horse1 = slots[slot1Idx];
-          horse2 = slots[slot2Idx];
-
-          if (horse1 && !horse2) {
-            isBye = true;
-          } else if (!horse1 && horse2) {
-            horse1 = horse2;
-            horse2 = null;
-            isBye = true;
-          } else if (!horse1 && !horse2) {
-            isBye = true;
-          }
-        } else {
-          // Placeholder for subsequent rounds
-          isBye = false;
-        }
-
-        if (!isBye && (horse1 || horse2)) {
-          const race = new Race({
-            tournamentId,
-            name: `${tournament.name} - Round ${r} - Match ${m}`,
-            distance: 1000,
-            scheduledAt: scheduledTime,
-            maxHorses: 2,
-            createdBy: req.user._id,
-          });
-          await race.save();
-          raceId = race._id;
-          racesCreatedCount++;
-
-          const horseIds = [horse1, horse2].filter(h => h !== null);
-          for (const horse of horseIds) {
-            const reg = new RaceRegistration({
-              horseId: horse._id,
-              raceId: race._id,
-              status: 'APPROVED',
-            });
-            await reg.save();
-          }
-
-          const registeredHorses = [];
-          for (const horse of horseIds) {
-            registeredHorses.push({
-              horseId: horse._id,
-              ownerId: horse.ownerId,
-              status: 'CONFIRMED',
-            });
-          }
-          const schedule = new Schedule({
-            raceId: race._id,
-            tournamentId,
-            raceName: race.name,
-            scheduledTime,
-            location: tournament.venue,
-            distance: 1000,
-            maxParticipants: 2,
-            raceType: 'SPRINT',
-            registeredHorses,
-          });
-          await schedule.save();
-        }
-
-        roundMatches.push({
-          matchNumber: m,
-          raceId,
-          horse1Id: horse1 ? horse1._id : null,
-          horse2Id: horse2 ? horse2._id : null,
-          isBye,
-          scheduledAt: scheduledTime.toISOString(),
-          bracketPosition: `${r}-${m}`,
-        });
-      }
-      rounds.push({
-        roundNumber: r,
-        roundName,
-        matches: roundMatches,
+    for (let i = 0; i < heats.length; i++) {
+      const heatHorses = heats[i]; // Array of { horse, startingGate }
+      const scheduledTime = new Date(baseTime.getTime() + (i * matchIntervalMinutes * 60 * 1000));
+      
+      const race = new Race({
+        tournamentId,
+        name: `${tournament.name} - Round 1 - Heat ${i + 1}`,
+        distance: 1000,
+        scheduledAt: scheduledTime,
+        maxHorses: maxPerHeat,
+        status: 'PENDING',
+        createdBy: req.user._id,
       });
+      await race.save();
+      racesCreatedCount++;
+
+      // Create RaceRegistration and assign startingGate
+      for (const item of heatHorses) {
+        const reg = new RaceRegistration({
+          horseId: item.horse.horseId._id,
+          raceId: race._id,
+          status: 'APPROVED',
+          startingGate: item.startingGate,
+        });
+        await reg.save();
+      }
+
+      const registeredScheduleHorses = heatHorses.map(item => ({
+        horseId: item.horse.horseId._id,
+        ownerId: item.horse.ownerId,
+        status: 'CONFIRMED', // Assuming SCHEDULE follows CONFIRMED logic
+      }));
+
+      const scheduleObj = {
+        raceId: race._id,
+        tournamentId,
+        raceName: race.name,
+        scheduledTime,
+        location: tournament.venue,
+        distance: 1000,
+        maxParticipants: maxPerHeat,
+        raceType: 'SPRINT',
+        registeredHorses: registeredScheduleHorses,
+      };
+      await schedule.save();
+
+      const raceObj = {
+        name: race.name,
+        raceId: race._id,
+        horseCount: heatHorses.length,
+        topAdvance: 4
+      };
+
+      roundMatches.push(raceObj);
+    }
+
+    const roundNameVal = heats.length === 1 ? 'Chung kết' : (heats.length === 2 ? 'Bán kết' : 'Vòng loại');
+
+    const rounds = [{
+      roundNumber: 1,
+      roundName: roundNameVal,
+      name: roundNameVal,
+      races: roundMatches
+    }];
+
+    // Pre-generate future placeholder rounds and pending races in database
+    let simulationHeatsCount = heats.length;
+    let simulatedRoundNo = 1;
+    while (simulationHeatsCount > 1) {
+      simulatedRoundNo++;
+      const nextHeatsCount = Math.ceil(simulationHeatsCount / 2);
+      const roundName = nextHeatsCount === 1 ? 'Chung kết' : (nextHeatsCount === 2 ? 'Bán kết' : 'Vòng loại');
+      
+      const nextRoundRaces = [];
+      for (let i = 0; i < nextHeatsCount; i++) {
+        // Create pending future race in DB
+        const futureRace = new Race({
+          tournamentId,
+          name: `${tournament.name} - ${roundName} - Heat ${i + 1}`,
+          distance: 1000,
+          scheduledAt: new Date(baseTime.getTime() + ((simulatedRoundNo - 1) * 24 * 60 * 60 * 1000)), // dummy schedule time (+days)
+          maxHorses: maxPerHeat,
+          status: 'PENDING',
+          createdBy: req.user._id,
+        });
+        await futureRace.save();
+        racesCreatedCount++;
+
+        const raceObj = {
+          name: futureRace.name,
+          raceId: futureRace._id,
+          horseCount: 0,
+          topAdvance: 4
+        };
+
+        nextRoundRaces.push(raceObj);
+      }
+
+      rounds.push({
+        roundNumber: simulatedRoundNo,
+        roundName: roundName,
+        name: roundName,
+        races: nextRoundRaces
+      });
+
+      simulationHeatsCount = nextHeatsCount;
     }
 
     const bracket = {
@@ -417,7 +427,7 @@ exports.generateBracket = async (req, res) => {
       action: 'GENERATE_BRACKET',
       performedBy: req.user._id,
       performedByRole: req.user.role,
-      details: { pairingMethod, racesCreated: racesCreatedCount, approvedCount },
+      details: { pairingMethod, maxPerHeat, racesCreated: racesCreatedCount, approvedCount },
       severity: 'IMPORTANT',
     });
     await auditLog.save();
@@ -754,3 +764,129 @@ exports.getAuditLogs = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// GET /admin/tournaments/registrations
+exports.getTournamentRegistrationsAll = async (req, res) => {
+  try {
+    const { tournamentId, status } = req.query;
+
+    const filter = {};
+    if (tournamentId) filter.tournamentId = tournamentId;
+    if (status) filter.status = status;
+
+    const registrations = await TournamentRegistration.find(filter)
+      .populate({
+        path: 'horseId',
+        select: 'name breed age weight color gender status',
+        populate: { path: 'ownerId', select: 'fullName email phone' },
+      })
+      .populate('ownerId', 'fullName email phone')
+      .populate('tournamentId', 'name status')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      total: registrations.length,
+      registrations: registrations.map((r) => ({
+        registrationId: r._id,
+        tournament: r.tournamentId ? {
+          id: r.tournamentId._id,
+          name: r.tournamentId.name,
+          status: r.tournamentId.status,
+        } : null,
+        horse: r.horseId,
+        owner: r.ownerId,
+        status: r.status,
+        rejectionReason: r.rejectionReason,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+      })),
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// PATCH /admin/tournaments/registrations/:registrationId/approve
+exports.approveTournamentRegistration = async (req, res) => {
+  try {
+    const { registrationId } = req.params;
+
+    const registration = await TournamentRegistration.findById(registrationId)
+      .populate('horseId', 'name breed')
+      .populate('ownerId', 'fullName email')
+      .populate('tournamentId', 'name maxHorses');
+
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    if (registration.status !== 'PENDING') {
+      return res.status(400).json({
+        message: `Cannot approve registration with status: ${registration.status}`,
+      });
+    }
+
+    // Check max approved horses
+    const approvedCount = await TournamentRegistration.countDocuments({
+      tournamentId: registration.tournamentId._id,
+      status: 'APPROVED',
+    });
+    if (approvedCount >= registration.tournamentId.maxHorses) {
+      return res.status(400).json({ message: 'Tournament has reached maximum approved horses' });
+    }
+
+    registration.status = 'APPROVED';
+    await registration.save();
+
+    return res.status(200).json({
+      registrationId: registration._id,
+      horse: registration.horseId,
+      owner: registration.ownerId,
+      tournament: registration.tournamentId,
+      status: registration.status,
+      message: 'Registration approved successfully',
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// PATCH /admin/tournaments/registrations/:registrationId/reject
+exports.rejectTournamentRegistration = async (req, res) => {
+  try {
+    const { registrationId } = req.params;
+    const { reason } = req.body;
+
+    const registration = await TournamentRegistration.findById(registrationId)
+      .populate('horseId', 'name breed')
+      .populate('ownerId', 'fullName email')
+      .populate('tournamentId', 'name');
+
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    if (registration.status !== 'PENDING') {
+      return res.status(400).json({
+        message: `Cannot reject registration with status: ${registration.status}`,
+      });
+    }
+
+    registration.status = 'REJECTED';
+    registration.rejectionReason = reason || 'No reason provided';
+    await registration.save();
+
+    return res.status(200).json({
+      registrationId: registration._id,
+      horse: registration.horseId,
+      owner: registration.ownerId,
+      tournament: registration.tournamentId,
+      status: registration.status,
+      rejectionReason: registration.rejectionReason,
+      message: 'Registration rejected successfully',
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
