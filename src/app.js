@@ -24,6 +24,7 @@ const refereeRoutes = require("./routes/refereeRoutes");
 const resultRoutes = require("./routes/resultRoutes");
 const predictionRoutes = require("./routes/predictionRoutes");
 const streamRoutes = require("./routes/streamRoutes");
+const statsRoutes = require("./routes/statsRoutes");
 
 const app = express();
 
@@ -80,6 +81,8 @@ app.use("/", resultRoutes);
 app.use("/", predictionRoutes);
 
 app.use("/", streamRoutes);
+
+app.use("/", statsRoutes);
 
 // Basic route for testing
 app.get("/", (req, res) => {
