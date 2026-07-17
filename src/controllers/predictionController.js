@@ -34,7 +34,7 @@ exports.checkRaceOpen = async (req, res) => {
 
     // Only open if status is SCHEDULED or ONGOING and current time is before scheduled time
     const isOpen =
-      (race.status === "SCHEDULED" || race.status === "ONGOING") &&
+      race.status === "SCHEDULED" &&
       nowUtc < scheduledUtc;
 
     res.status(200).json({
@@ -86,7 +86,7 @@ exports.placePrediction = async (req, res) => {
     const scheduledUtc = scheduledTime.getTime();
 
     // Enforce status conditions
-    if (race.status !== "SCHEDULED" && race.status !== "ONGOING") {
+    if (race.status !== "SCHEDULED") {
       return res.status(400).json({
         message: `Cannot place prediction for race with status ${race.status}`,
       });
